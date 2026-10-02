@@ -102,7 +102,11 @@ Carregando...
 </div>
 
 <button id="authorize" disabled>
-ASSINAR E AUTORIZAR ESTA SOLICITAÇÃO
+✅ APROVAR SOLICITAÇÃO NA BLOCKCHAIN
+</button>
+
+<button id="reject" disabled style="background:#8b2e2e">
+❌ REJEITAR SOLICITAÇÃO NA BLOCKCHAIN
 </button>
 
 <button id="share" type="button" disabled style="background:#244a7a">
@@ -204,6 +208,8 @@ async function load(){
     `;
 
     $("authorize").disabled = authorization.status !== "pending";
+    $("reject").disabled = authorization.status !== "pending";
+    $("reject").addEventListener("click", rejectRequest);
     $("share").disabled = false;
     $("share").onclick = shareRequest;
 
@@ -258,29 +264,26 @@ async function shareRequest(){
   }
 }
 
-async function authorize(){
+async function walletAction(action){
 
   if(!window.ethereum){
     $("status").className = "status error";
-    $("status").textContent =
-      "Carteira Ethereum não encontrada neste navegador.";
+    $("status").textContent = "Carteira Ethereum não encontrada neste navegador.";
     return;
   }
 
   try{
     $("authorize").disabled = true;
+    $("reject").disabled = true;
     $("status").textContent = "Conectando à carteira...";
 
     const accounts = await window.ethereum.request({
       method:"eth_requestAccounts"
     });
-
     const account = accounts[0]?.toLowerCase();
 
     if(!account || account !== authorization.owner_address.toLowerCase()){
-      throw new Error(
-        "A carteira conectada não corresponde ao proprietário autorizado."
-      );
+      throw new Error("A carteira conectada não corresponde à carteira da solicitação.");
     }
 
     if(authorization.status !== "pending"){
@@ -291,58 +294,79 @@ async function authorize(){
       throw new Error("Esta solicitação expirou.");
     }
 
-    $("status").textContent =
-      "Aguardando sua confirmação na carteira. Nenhuma transferência será enviada nesta etapa.";
+    const actionResponse = await fetch(
+      "/api/recovery/authorization/" +
+      encodeURIComponent(authorization.id) +
+      "/onchain-action?action=" + encodeURIComponent(action)
+    );
+    const actionData = await actionResponse.json();
 
-    // Esta etapa solicita SOMENTE uma assinatura da autorização.
-    // Não envia ETH e não pede chave privada/seed.
-    const signature = await window.ethereum.request({
-      method:"personal_sign",
-      params:[
-        authorization.message,
-        account
-      ]
+    if(!actionData.ok){
+      throw new Error(actionData.error || "Solicitação não publicada na blockchain.");
+    }
+
+    $("status").textContent =
+      action === "approve"
+        ? "Confirme a aprovação na sua carteira..."
+        : "Confirme a rejeição na sua carteira...";
+
+    const txHash = await window.ethereum.request({
+      method:"eth_sendTransaction",
+      params:[{
+        from: account,
+        to: actionData.to,
+        data: actionData.data
+      }]
     });
 
     $("status").textContent =
-      "Assinatura recebida. Validando autorização...";
+      "Transação enviada: " + txHash + ". Aguardando confirmação da blockchain...";
 
-    const response = await fetch(
-      "/api/recovery/authorize",
-      {
-        method:"POST",
-        headers:{"content-type":"application/json"},
-        body:JSON.stringify({
-          authorization_id: authorization.id,
-          signature,
-          owner_address: account
-        })
+    let confirmed = false;
+    for(let i=0;i<30;i++){
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const receipt = await window.ethereum.request({
+        method:"eth_getTransactionReceipt",
+        params:[txHash]
+      });
+      if(receipt){
+        confirmed = receipt.status === "0x1";
+        break;
       }
-    );
-
-    const result = await response.json();
-
-    if(!result.ok){
-      throw new Error(result.error || "Falha ao validar a autorização.");
     }
 
-    $("status").className = "status success";
-    $("status").innerHTML =
-      "✅ Autorização confirmada pela carteira.<br>" +
-      "Nenhuma transferência foi executada nesta etapa.<br>" +
-      "O caso agora está marcado como <b>autorizado para execução</b>.";
+    if(!confirmed){
+      throw new Error("A transação ainda não foi confirmada. O painel será atualizado quando a blockchain confirmar.");
+    }
 
-    authorization.status = "authorized";
-    $("authorize").disabled = true;
+    // O contrato é a fonte da decisão. O banco apenas sincroniza/cacheia o resultado.
+    await fetch("/api/recovery/authorizations/sync",{method:"POST"});
+
+    $("status").className = "status success";
+    $("status").textContent =
+      action === "approve"
+        ? "✅ Solicitação APROVADA na blockchain. O painel será sincronizado."
+        : "❌ Solicitação REJEITADA na blockchain. O painel será sincronizado.";
+
+    authorization.status = action === "approve" ? "authorized" : "rejected";
 
   }catch(error){
 
     $("status").className = "status error";
     $("status").textContent =
-      "Autorização não concluída: " + error.message;
+      "Operação não concluída: " + error.message;
 
     $("authorize").disabled = false;
+    $("reject").disabled = false;
   }
+}
+
+async function authorize(){
+  return walletAction("approve");
+}
+
+async function rejectRequest(){
+  return walletAction("reject");
 }
 }
 $("authorize").addEventListener(
