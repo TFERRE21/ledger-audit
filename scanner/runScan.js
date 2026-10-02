@@ -1,7 +1,7 @@
 import { getScanConfig } from "./config.js";
 import { getLatestBlock, scanRange } from "./rangeScanner.js";
 import { investigateTransaction } from "../analyzers/caseEngine.js";
-import { saveTransaction, saveCase, getScanProgress, setScanProgress } from "../database/repository.js";
+import { saveTransaction, saveCase, getScanProgress, setScanProgress, saveScanLog } from "../database/repository.js";
 import { pool } from "../database/connection.js";
 
 const config = getScanConfig();
@@ -73,6 +73,7 @@ async function scanOnce() {
       });
 
       console.log(logLine);
+      await saveScanLog({ chain: config.chain, blockNumber: progress.currentBlock, message: logLine });
     }
   });
 
@@ -95,6 +96,9 @@ async function scanOnce() {
 
       if (caseData.recoveryEligible) {
         recoveryCandidates++;
+        const opportunityLog = `[OPPORTUNITY] tx=${caseData.hash} confidence=${caseData.confidence} recovery=${caseData.recoveryStatus}`;
+        await saveScanLog({ chain: config.chain, blockNumber: tx.blockNumber, level: "opportunity", message: opportunityLog, opportunity: true });
+        console.log(opportunityLog);
         console.log(JSON.stringify({
           event: "RECOVERY_CANDIDATE",
           txHash: caseData.hash,
