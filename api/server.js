@@ -10,6 +10,8 @@ import {
   verifyOwnerAuthorization
 } from "../recovery/ownerAuthorization.js";
 
+// RUNTIME_BUILD_MARKER: authorization-backfill-syntax-fixed-2026-10-02
+
 const port = Number(process.env.PORT || 3000);
 let marketPriceCache = { expiresAt: 0, data: null };
 const scannerRestartDelayMs = Math.max(3000, Number(process.env.SCANNER_RESTART_DELAY_MS || 5000));
