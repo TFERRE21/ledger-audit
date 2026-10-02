@@ -87,7 +87,8 @@ export function investigateTransaction(tx) {
     ownerVerified,
     recoveryAuthorityVerified: tx.recoveryAuthorityVerified === true,
     recoveryMechanismVerified: tx.recoveryMechanismVerified === true,
-    recoveryMechanismType: tx.recoveryMechanismType ?? null
+    recoveryMechanismType: tx.recoveryMechanismType ?? null,
+    monetizationQueue: recoveryEligible === true
   };
 }
 
