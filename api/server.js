@@ -14,7 +14,10 @@ async function queryDatabase(sql, params = []) {
 }
 
 async function handle(req, res) {
-  if (req.url === "/dashboard" || req.url === "/dashboard/") {
+  const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const pathname = requestUrl.pathname;
+
+  if (pathname === "/dashboard" || pathname === "/dashboard/") {
     try {
       const html = await readFile(new URL("./dashboard.html", import.meta.url), "utf8");
       res.setHeader("content-type", "text/html; charset=utf-8");
@@ -29,7 +32,7 @@ async function handle(req, res) {
 
   res.setHeader("content-type", "application/json; charset=utf-8");
 
-  if (req.url === "/health") {
+  if (pathname === "/health") {
     res.end(JSON.stringify({
       ok: true,
       service: "ledger-audit",
@@ -38,7 +41,7 @@ async function handle(req, res) {
     return;
   }
 
-  if (req.url === "/") {
+  if (pathname === "/") {
     res.end(JSON.stringify({
       service: "ledger-audit",
       status: "online",
@@ -48,7 +51,7 @@ async function handle(req, res) {
     return;
   }
 
-  if (req.url === "/api/stats") {
+  if (pathname === "/api/stats") {
     try {
       const result = await queryDatabase(`
         SELECT
@@ -65,7 +68,7 @@ async function handle(req, res) {
     return;
   }
 
-  if (req.url === "/api/transactions") {
+  if (pathname === "/api/transactions") {
     try {
       const result = await queryDatabase(`
         SELECT chain, tx_hash, block_number, from_address, to_address, value, status, observed_at
@@ -81,7 +84,7 @@ async function handle(req, res) {
     return;
   }
 
-  if (req.url === "/api/cases") {
+  if (pathname === "/api/cases") {
     try {
       const result = await queryDatabase(`
         SELECT id, chain, tx_hash, confidence, ownership_status, recovery_status,
