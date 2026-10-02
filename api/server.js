@@ -166,7 +166,7 @@ async function handle(req, res) {
       service: "ledger-audit",
       status: "online",
       dashboard: "/dashboard",
-      endpoints: ["/health", "/api/stats", "/api/transactions", "/api/cases", "/api/scanner/status"]
+      endpoints: ["/health", "/api/stats", "/api/balances", "/api/transactions", "/api/cases", "/api/scanner/status"]
     }));
     return;
   }
@@ -277,6 +277,35 @@ async function handle(req, res) {
         LIMIT 200
       `);
       res.end(JSON.stringify({ok:true,count:result.rows.length,contracts:result.rows}));
+    } catch {
+      res.statusCode=503;
+      res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
+    return;
+  }
+
+  if (pathname === "/api/balances") {
+    try {
+      const contracts = await queryDatabase(`
+        SELECT
+          COUNT(*) FILTER (WHERE eth_balance_wei::numeric > 0) AS funded_contracts,
+          COALESCE(SUM(eth_balance_wei::numeric), 0) AS contract_balance_wei
+        FROM contract_findings
+      `);
+      const cases = await queryDatabase(`
+        SELECT COALESCE(SUM(NULLIF(metadata->>'amount','')::numeric),0) AS case_amount
+        FROM investigation_cases
+        WHERE metadata->>'asset' = 'ETH'
+      `);
+      const wei = BigInt(String(contracts.rows[0]?.contract_balance_wei || "0"));
+      const eth = Number(wei) / 1e18;
+      res.end(JSON.stringify({
+        ok:true,
+        fundedContracts:Number(contracts.rows[0]?.funded_contracts || 0),
+        contractBalanceWei:wei.toString(),
+        contractBalanceEth:eth.toFixed(18),
+        caseAmountEth:Number(cases.rows[0]?.case_amount || 0)
+      }));
     } catch {
       res.statusCode=503;
       res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
