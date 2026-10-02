@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ledger Audit — Ethereum</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:#0b1020;color:#eef2ff}
+header{padding:22px 28px;border-bottom:1px solid #202943;background:#10172a;display:flex;justify-content:space-between;align-items:center}
+h1{margin:0;font-size:22px}.sub{color:#93a0bd;font-size:13px;margin-top:5px}
+.badge{padding:7px 12px;border-radius:999px;background:#173b2b;color:#75e0a0;font-size:12px}
+main{padding:24px;max-width:1400px;margin:auto}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.card{background:#11182b;border:1px solid #202943;border-radius:12px;padding:18px}.label{color:#93a0bd;font-size:12px}.value{font-size:27px;font-weight:700;margin-top:8px}
+.section{margin-top:22px}.section h2{font-size:16px;margin:0 0 12px}.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:10px;border-bottom:1px solid #202943;vertical-align:top}th{color:#93a0bd}
+.status{display:inline-block;padding:4px 8px;border-radius:6px;background:#252d44}.high{background:#4a2525;color:#ffaaa0}.medium{background:#4a3b20;color:#ffd98a}
+.muted{color:#7f8ba5}.mono{font-family:monospace}.refresh{color:#93a0bd;font-size:12px}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.row{grid-template-columns:1fr}}@media(max-width:600px){.grid{grid-template-columns:1fr}main{padding:14px}header{padding:16px}}
+</style>
+</head>
+<body>
+<header><div><h1>Ledger Audit</h1><div class="sub">Monitoramento Ethereum • auditoria e recuperação autorizada</div></div><div><span id="online" class="badge">● ONLINE</span><div id="updated" class="refresh">atualizando...</div></div></header>
+<main>
+<div class="grid">
+<div class="card"><div class="label">TRANSAÇÕES</div><div id="transactions" class="value">—</div></div>
+<div class="card"><div class="label">CASOS</div><div id="cases" class="value">—</div></div>
+<div class="card"><div class="label">ALTA CONFIANÇA</div><div id="high" class="value">—</div></div>
+<div class="card"><div class="label">RECUPERAÇÕES</div><div id="recovery" class="value">—</div></div>
+</div>
+<div class="section"><div class="card"><h2>Últimos casos</h2><div style="overflow:auto"><table><thead><tr><th>Hash</th><th>Confiança</th><th>Propriedade</th><th>Recuperação</th><th>Evidências</th></tr></thead><tbody id="caseRows"><tr><td colspan="5" class="muted">Carregando...</td></tr></tbody></table></div></div></div>
+<div class="section row">
+<div class="card"><h2>Últimas transações</h2><div style="overflow:auto"><table><thead><tr><th>Bloco</th><th>Hash</th><th>De</th><th>Para</th><th>Status</th></tr></thead><tbody id="txRows"><tr><td colspan="5" class="muted">Carregando...</td></tr></tbody></table></div></div>
+<div class="card"><h2>Status operacional</h2><p>🟢 API: <b id="apiStatus">verificando</b></p><p>🟢 Banco: <b id="dbStatus">verificando</b></p><p>🟡 Recovery: <b>DRY_RUN</b></p><p class="muted">Nenhuma transferência é executada automaticamente enquanto a autorização e o mecanismo legítimo de recuperação não forem verificados.</p></div>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const short=(v,n=12)=>v?v.slice(0,n)+"…"+v.slice(-6):"—";
+async function load(){
+ try{
+  const [s,c,t,h]=await Promise.all([fetch('/api/stats'),fetch('/api/cases'),fetch('/api/transactions'),fetch('/health')]);
+  const sj=await s.json(), cj=await c.json(), tj=await t.json(), hj=await h.json();
+  const st=sj.stats||{}; $('transactions').textContent=Number(st.transactions||0).toLocaleString('pt-BR'); $('cases').textContent=Number(st.cases||0).toLocaleString('pt-BR'); $('high').textContent=Number(st.high_confidence_cases||0).toLocaleString('pt-BR'); $('recovery').textContent=Number(st.recovery_candidates||0).toLocaleString('pt-BR');
+  $('apiStatus').textContent=hj.ok?'online':'erro'; $('dbStatus').textContent=sj.ok?'online':'indisponível';
+  $('caseRows').innerHTML=(cj.cases||[]).slice(0,20).map(x=>'<tr><td class="mono">'+short(x.tx_hash)+'</td><td><span class="status '+(x.confidence||'')+'">'+x.confidence+'</span></td><td>'+x.ownership_status+'</td><td>'+x.recovery_status+'</td><td>'+((x.evidence||[]).join(', ')||'—')+'</td></tr>').join('')||'<tr><td colspan="5" class="muted">Nenhum caso.</td></tr>';
+  $('txRows').innerHTML=(tj.transactions||[]).slice(0,20).map(x=>'<tr><td>'+x.block_number+'</td><td class="mono">'+short(x.tx_hash)+'</td><td class="mono">'+short(x.from_address)+'</td><td class="mono">'+short(x.to_address)+'</td><td>'+x.status+'</td></tr>').join('')||'<tr><td colspan="5" class="muted">Nenhuma transação.</td></tr>';
+  $('updated').textContent='atualizado '+new Date().toLocaleTimeString('pt-BR');
+ }catch(e){$('online').textContent='● OFFLINE';$('online').style.background='#4a2525';$('online').style.color='#ffaaa0';}
+}
+load();setInterval(load,15000);
+</script>
+</body></html>
