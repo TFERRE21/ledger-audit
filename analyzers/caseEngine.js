@@ -76,6 +76,7 @@ export function investigateTransaction(tx) {
   return {
     hash: tx.hash ?? null,
     chain: tx.chain ?? null,
+    blockNumber: tx.blockNumber ?? null,
     findings,
     evidence,
     metadata,
