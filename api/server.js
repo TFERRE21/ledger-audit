@@ -710,6 +710,7 @@ async function handle(req, res) {
           ra.expires_at,
           ra.created_at,
           ra.authorized_at,
+          ra.onchain_request_id,
           ic.chain,
           ic.tx_hash AS tx_hash,
           ic.metadata
@@ -739,6 +740,64 @@ async function handle(req, res) {
         ok: false,
         error: "database_unavailable"
       }));
+    }
+    return;
+  }
+
+  const onchainActionMatch = pathname.match(/^\/api\/recovery\/authorization\/(\d+)\/onchain-action$/);
+  if (onchainActionMatch && req.method === "GET") {
+    try {
+      const authorizationId = Number(onchainActionMatch[1]);
+      const action = String(requestUrl.searchParams.get("action") || "").toLowerCase();
+      if (!["approve","reject"].includes(action)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ok:false,error:"invalid_onchain_action"}));
+        return;
+      }
+      if (!isRecoveryRegistryConfigured()) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ok:false,error:"recovery_registry_not_configured"}));
+        return;
+      }
+      const result = await queryDatabase(`
+        SELECT id, owner_address, destination, status, onchain_request_id
+        FROM recovery_authorizations
+        WHERE id = $1 LIMIT 1
+      `, [authorizationId]);
+      const authorization = result.rows[0];
+      if (!authorization) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ok:false,error:"authorization_not_found"}));
+        return;
+      }
+      if (authorization.status !== "pending") {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ok:false,error:"authorization_not_pending",status:authorization.status}));
+        return;
+      }
+      if (!authorization.onchain_request_id) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ok:false,error:"authorization_not_published_onchain"}));
+        return;
+      }
+      const registryAddress = process.env.RECOVERY_REGISTRY_ADDRESS;
+      const iface = new ethers.Interface([
+        "function approve(uint256 requestId)",
+        "function reject(uint256 requestId)"
+      ]);
+      const data = iface.encodeFunctionData(action, [BigInt(authorization.onchain_request_id)]);
+      res.end(JSON.stringify({
+        ok:true,
+        action,
+        to:registryAddress,
+        data,
+        ownerAddress:authorization.owner_address,
+        requestId:authorization.onchain_request_id
+      }));
+    } catch (error) {
+      console.error("[AUTHORIZATION_ONCHAIN_ACTION]", error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ok:false,error:"onchain_action_failed"}));
     }
     return;
   }
