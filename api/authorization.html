@@ -261,94 +261,137 @@ async function shareRequest(){
 async function authorize(){
 
   if(!window.ethereum){
-
     $("status").className = "status error";
     $("status").textContent =
       "Carteira Ethereum não encontrada neste navegador.";
-
     return;
   }
 
   try{
-
     $("authorize").disabled = true;
+    $("status").textContent = "Conectando à carteira...";
 
-    $("status").textContent =
-      "Conectando à carteira...";
+    const accounts = await window.ethereum.request({
+      method:"eth_requestAccounts"
+    });
 
-    const accounts =
-      await window.ethereum.request({
-        method:"eth_requestAccounts"
-      });
+    const account = accounts[0]?.toLowerCase();
 
-    const account =
-      accounts[0]?.toLowerCase();
-
-    if(
-      !account ||
-      account !==
-      authorization.owner_address.toLowerCase()
-    ){
-
+    if(!account || account !== authorization.owner_address.toLowerCase()){
       throw new Error(
         "A carteira conectada não corresponde ao proprietário autorizado."
       );
     }
 
-    $("status").textContent =
-      "Confirme a assinatura na sua carteira...";
+    const chainId = await window.ethereum.request({
+      method:"eth_chainId"
+    });
 
-    const signature =
-      await window.ethereum.request({
-        method:"personal_sign",
-        params:[
-          authorization.message,
-          account
-        ]
-      });
+    const expectedChainId = String(
+      authorization.metadata?.chainId ??
+      authorization.metadata?.chain_id ??
+      ""
+    );
 
-    const response =
-      await fetch(
-        "/api/recovery/authorize",
-        {
-          method:"POST",
-          headers:{
-            "content-type":"application/json"
-          },
-          body:JSON.stringify({
-            authorization_id:
-              authorization.id,
-            signature
-          })
-        }
+    if(expectedChainId && chainId.toLowerCase() !== String(expectedChainId).toLowerCase()){
+      throw new Error(
+        "A carteira está em uma rede diferente da rede da solicitação."
       );
+    }
 
-    const result =
-      await response.json();
+    const asset = String(
+      authorization.metadata?.asset ||
+      authorization.metadata?.token ||
+      "ETH"
+    ).toUpperCase();
 
-    if(!result.ok)
-      throw new Error(result.error);
+    if(asset !== "ETH"){
+      throw new Error(
+        "Nesta primeira versão, a execução automática pela carteira está habilitada somente para ETH."
+      );
+    }
 
-    $("status").className =
-      "status success";
+    const amount = authorization.metadata?.amount ??
+      authorization.metadata?.value ??
+      authorization.metadata?.recoveryAmount;
 
+    if(amount === undefined || amount === null || String(amount).trim() === ""){
+      throw new Error(
+        "O valor exato da transação não está definido nesta solicitação."
+      );
+    }
+
+    if(!/^0x[a-fA-F0-9]{40}$/.test(authorization.destination)){
+      throw new Error("Destino da transação inválido.");
+    }
+
+    if(authorization.status !== "pending"){
+      throw new Error("Esta solicitação não está mais pendente.");
+    }
+
+    $("status").textContent =
+      "Confira a transação na sua carteira. Somente ao aprová-la ela será enviada à blockchain.";
+
+    // A própria carteira assina e transmite a transação.
+    // Nenhuma chave privada ou seed é enviada ao Ledger Audit.
+    const txHash = await window.ethereum.request({
+      method:"eth_sendTransaction",
+      params:[{
+        from: account,
+        to: authorization.destination,
+        value: window.ethers?.utils?.parseEther
+          ? window.ethers.utils.parseEther(String(amount)).toHexString()
+          : (() => {
+              const [whole, fraction = ""] = String(amount).trim().split(".");
+              if(!/^\d+$/.test(whole) || !/^\d*$/.test(fraction) || fraction.length > 18){
+                throw new Error("Valor ETH inválido.");
+              }
+              const wei = BigInt(whole) * 1000000000000000000n +
+                BigInt((fraction + "0".repeat(18)).slice(0,18) || "0");
+              return "0x" + wei.toString(16);
+            })()
+      }]
+    });
+
+    $("status").textContent =
+      "Transação enviada. Aguardando confirmação na blockchain...";
+
+    const response = await fetch(
+      "/api/recovery/transaction-submitted",
+      {
+        method:"POST",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({
+          authorization_id: authorization.id,
+          tx_hash: txHash,
+          owner_address: account,
+          chain_id: chainId
+        })
+      }
+    );
+
+    const result = await response.json();
+
+    if(!result.ok){
+      throw new Error(result.error || "Falha ao registrar a transação.");
+    }
+
+    $("status").className = "status success";
     $("status").innerHTML =
-      "✅ Autorização registrada com sucesso.<br>" +
-      "O caso agora será submetido às validações de recuperação.";
+      "✅ Transação aprovada pela carteira e registrada.<br>" +
+      "Hash: <span style=\"font-family:monospace;word-break:break-all\">" +
+      esc(txHash) + "</span><br>" +
+      "O sistema aguardará a confirmação da blockchain.";
 
   }catch(error){
 
-    $("status").className =
-      "status error";
-
+    $("status").className = "status error";
     $("status").textContent =
-      "Autorização não concluída: " +
-      error.message;
+      "Transação não concluída: " + error.message;
 
     $("authorize").disabled = false;
   }
 }
-
 $("authorize").addEventListener(
   "click",
   authorize
