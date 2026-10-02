@@ -3,8 +3,11 @@ import { normalizeTransaction } from "../indexer/normalizer.js";
 
 const DEFAULT_RECEIPT_CONCURRENCY = 2;
 const DEFAULT_RECEIPT_DELAY_MS = 150;
+const DEFAULT_BLOCK_CONCURRENCY = 4;
+const DEFAULT_BLOCK_DELAY_MS = 25;
+const DEFAULT_PROGRESS_EVERY_BLOCKS = 25;
 const ERC20_TRANSFER_TOPIC =
-  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628a1f0b5c8b7b5d";
+  "0xddf252ad1be2c89b69c2b068fc378daa9527f163c4a11628a1f0b5c8b7b5d";
 
 function topicAddress(topic) {
   if (typeof topic !== "string" || !topic.startsWith("0x") || topic.length < 66) return null;
@@ -44,7 +47,12 @@ async function enrichWithReceipt(rpcUrl, tx) {
   }, tx.chain);
 }
 
-async function enrichReceipts(rpcUrl, transactions, concurrency = DEFAULT_RECEIPT_CONCURRENCY, delayMs = DEFAULT_RECEIPT_DELAY_MS) {
+async function enrichReceipts(
+  rpcUrl,
+  transactions,
+  concurrency = DEFAULT_RECEIPT_CONCURRENCY,
+  delayMs = DEFAULT_RECEIPT_DELAY_MS
+) {
   const results = new Array(transactions.length);
   let nextIndex = 0;
   let failedReceipts = 0;
@@ -89,27 +97,81 @@ export async function scanRange({
   fromBlock,
   toBlock,
   receiptConcurrency = DEFAULT_RECEIPT_CONCURRENCY,
-  receiptDelayMs = DEFAULT_RECEIPT_DELAY_MS
+  receiptDelayMs = DEFAULT_RECEIPT_DELAY_MS,
+  blockConcurrency = DEFAULT_BLOCK_CONCURRENCY,
+  blockDelayMs = DEFAULT_BLOCK_DELAY_MS,
+  progressEveryBlocks = DEFAULT_PROGRESS_EVERY_BLOCKS,
+  onProgress = null
 }) {
   if (!Number.isInteger(fromBlock) || !Number.isInteger(toBlock) || fromBlock > toBlock) {
     throw new Error("invalid block range");
   }
 
+  const totalBlocks = toBlock - fromBlock + 1;
   const observations = [];
+  const concurrency = Math.min(Math.max(1, blockConcurrency), totalBlocks);
+  const every = Math.max(1, progressEveryBlocks);
+  let nextBlock = fromBlock;
+  let completedBlocks = 0;
+  let discoveredTransactions = 0;
+  let highestCompletedBlock = fromBlock - 1;
+  let lastReported = 0;
+  let progressChain = Promise.resolve();
 
-  for (let blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
-    const hexBlock = "0x" + blockNumber.toString(16);
-    const block = await rpcCall(rpcUrl, "eth_getBlockByNumber", [hexBlock, true]);
-    if (!block) continue;
+  const reportProgress = (force = false) => {
+    if (!onProgress) return;
+    if (!force && completedBlocks - lastReported < every) return;
+    lastReported = completedBlocks;
 
-    for (const tx of block.transactions ?? []) {
-      observations.push(normalizeTransaction({
-        ...tx,
-        blockNumber,
-        timestamp: block.timestamp ? Number.parseInt(block.timestamp, 16) : null
-      }, chain));
+    const payload = {
+      fromBlock,
+      toBlock,
+      currentBlock: highestCompletedBlock,
+      scannedBlocks: completedBlocks,
+      totalBlocks,
+      transactions: discoveredTransactions
+    };
+
+    progressChain = progressChain
+      .then(() => onProgress(payload))
+      .catch(error => console.warn(`[SCAN] progress update failed: ${error.message}`));
+  };
+
+  async function worker() {
+    while (true) {
+      const blockNumber = nextBlock++;
+      if (blockNumber > toBlock) return;
+
+      const hexBlock = "0x" + blockNumber.toString(16);
+      const block = await rpcCall(rpcUrl, "eth_getBlockByNumber", [hexBlock, true]);
+
+      if (block) {
+        const blockTransactions = block.transactions ?? [];
+        for (const tx of blockTransactions) {
+          observations.push(normalizeTransaction({
+            ...tx,
+            blockNumber,
+            timestamp: block.timestamp ? Number.parseInt(block.timestamp, 16) : null
+          }, chain));
+        }
+        discoveredTransactions += blockTransactions.length;
+      }
+
+      completedBlocks++;
+      if (blockNumber > highestCompletedBlock) highestCompletedBlock = blockNumber;
+      reportProgress();
+
+      if (blockDelayMs > 0) await sleep(blockDelayMs);
     }
   }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  reportProgress(true);
+  await progressChain;
+
+  console.log(
+    `[BLOCKS] scanned=${completedBlocks}/${totalBlocks} tx=${discoveredTransactions} concurrency=${concurrency}`
+  );
 
   return enrichReceipts(rpcUrl, observations, receiptConcurrency, receiptDelayMs);
 }
