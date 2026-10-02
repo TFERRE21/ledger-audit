@@ -3,6 +3,9 @@ import { getLatestBlock, scanRange } from "./rangeScanner.js";
 import { investigateTransaction } from "../analyzers/caseEngine.js";
 import { saveTransaction, saveCase, getScanProgress, setScanProgress, saveScanLog, saveContractFinding } from "../database/repository.js";
 import { pool } from "../database/connection.js";
+import { randomBytes } from "node:crypto";
+import { ethers } from "ethers";
+import { buildOwnerAuthorizationMessage } from "../recovery/ownerAuthorization.js";
 import { scanContracts } from "./contractScanner.js";
 
 const config = getScanConfig();
@@ -92,8 +95,64 @@ async function scanOnce() {
     });
 
     if (caseData.findings.length > 0) {
-      await saveCase(caseData);
+      const caseId = await saveCase(caseData);
       savedCases++;
+
+      // Toda oportunidade com um endereço candidato de controle gera automaticamente
+      // uma solicitação individual de aprovação. Isso não presume propriedade: a carteira
+      // precisa assinar a solicitação para comprovar controle do endereço candidato.
+      const ownerCandidate = String(caseData.metadata?.ownerCandidateAddress || "").toLowerCase();
+      const destination = config.authorizedDestination;
+      if (
+        /^0x[a-f-f0-9]{40}$/i.test(ownerCandidate) &&
+        /^0x[a-f-f0-9]{40}$/i.test(String(destination || ""))
+      ) {
+        const existing = await pool.query(
+          `SELECT id FROM recovery_authorizations
+           WHERE case_id = $1
+             AND status IN ('pending','authorized','submitted_pending_confirmation')
+           ORDER BY id DESC LIMIT 1`,
+          [caseId]
+        );
+
+        if (!existing.rows.length) {
+          const nonce = randomBytes(24).toString("hex");
+          const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+          let amount = "a confirmar";
+          try {
+            if (caseData.metadata?.amountWei) {
+              amount = ethers.formatEther(BigInt(caseData.metadata.amountWei));
+            }
+          } catch {}
+
+          const message = buildOwnerAuthorizationMessage({
+            domain: "Ledger Audit",
+            caseId,
+            chain: caseData.chain,
+            sourceAddress: ownerCandidate,
+            destination,
+            amount,
+            expiresAt: expiresAt.toISOString(),
+            nonce
+          });
+
+          await pool.query(
+            `INSERT INTO recovery_authorizations
+              (case_id, owner_address, destination, nonce, message, status, expires_at)
+             VALUES ($1,$2,$3,$4,$5,'pending',$6)`,
+            [caseId, ownerCandidate, String(destination).toLowerCase(), nonce, message, expiresAt]
+          );
+
+          await saveScanLog({
+            chain: config.chain,
+            blockNumber: tx.blockNumber,
+            level: "authorization_request",
+            message: `[AUTHORIZATION_REQUEST] case=${caseId} ownerCandidate=${ownerCandidate} destination=${destination} status=pending`,
+            opportunity: true
+          });
+          console.log(`[AUTHORIZATION_REQUEST] case=${caseId} ownerCandidate=${ownerCandidate} status=pending`);
+        }
+      }
 
       if (caseData.recoveryEligible) {
         recoveryCandidates++;
