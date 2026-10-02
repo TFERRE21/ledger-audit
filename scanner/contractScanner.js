@@ -23,6 +23,8 @@ function decodeAddress(result) {
   return "0x" + result.slice(-40);
 }
 
+function encodeAddress(address) { return address.toLowerCase().replace(/^0x/, "").padStart(64, "0"); }
+
 async function ethCall(rpcUrl, to, data) {
   try {
     return await rpcCall(rpcUrl, "eth_call", [{ to, data }, "latest"]);
@@ -95,10 +97,17 @@ export async function inspectContract(rpcUrl, address) {
 
 export async function scanContracts(rpcUrl, transactions = [], maxContracts = 50) {
   const addresses = new Set();
+  const tokenPairs = new Map();
   for (const tx of transactions) {
     if (isAddress(tx.to)) addresses.add(tx.to.toLowerCase());
     for (const transfer of tx.tokenTransfers || []) {
-      if (isAddress(transfer.tokenContract)) addresses.add(transfer.tokenContract.toLowerCase());
+      if (isAddress(transfer.tokenContract)) {
+        addresses.add(transfer.tokenContract.toLowerCase());
+        if (isAddress(transfer.to)) {
+          const key = `${transfer.tokenContract.toLowerCase()}:${transfer.to.toLowerCase()}`;
+          tokenPairs.set(key, { tokenContract: transfer.tokenContract.toLowerCase(), holder: transfer.to.toLowerCase() });
+        }
+      }
     }
     if (addresses.size >= maxContracts) break;
   }
