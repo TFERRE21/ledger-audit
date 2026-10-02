@@ -1,7 +1,8 @@
-import { rpcCall } from "../indexer/rpcClient.js";
+import { rpcCall, sleep } from "../indexer/rpcClient.js";
 import { normalizeTransaction } from "../indexer/normalizer.js";
 
-const DEFAULT_RECEIPT_CONCURRENCY = 8;
+const DEFAULT_RECEIPT_CONCURRENCY = 2;
+const DEFAULT_RECEIPT_DELAY_MS = 150;
 
 export async function getLatestBlock(rpcUrl) {
   const result = await rpcCall(rpcUrl, "eth_blockNumber");
@@ -11,9 +12,7 @@ export async function getLatestBlock(rpcUrl) {
 async function enrichWithReceipt(rpcUrl, tx) {
   const receipt = await rpcCall(rpcUrl, "eth_getTransactionReceipt", [tx.hash]);
 
-  if (!receipt) {
-    return tx;
-  }
+  if (!receipt) return tx;
 
   return normalizeTransaction({
     ...tx,
@@ -22,9 +21,15 @@ async function enrichWithReceipt(rpcUrl, tx) {
   }, tx.chain);
 }
 
-async function enrichReceipts(rpcUrl, transactions, concurrency = DEFAULT_RECEIPT_CONCURRENCY) {
+async function enrichReceipts(
+  rpcUrl,
+  transactions,
+  concurrency = DEFAULT_RECEIPT_CONCURRENCY,
+  delayMs = DEFAULT_RECEIPT_DELAY_MS
+) {
   const results = new Array(transactions.length);
   let nextIndex = 0;
+  let failedReceipts = 0;
 
   async function worker() {
     while (true) {
@@ -35,14 +40,19 @@ async function enrichReceipts(rpcUrl, transactions, concurrency = DEFAULT_RECEIP
       try {
         results[index] = await enrichWithReceipt(rpcUrl, tx);
       } catch (error) {
-        console.warn(`[RECEIPT] ${tx.hash}: ${error.message}`);
+        failedReceipts++;
+        console.warn(`[RECEIPT] failed for ${tx.hash}: ${error.message}`);
         results[index] = tx;
       }
+
+      if (delayMs > 0) await sleep(delayMs);
     }
   }
 
   const workerCount = Math.min(Math.max(1, concurrency), transactions.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  console.log(`[RECEIPT] processed=${transactions.length} failed=${failedReceipts}`);
   return results;
 }
 
@@ -51,7 +61,8 @@ export async function scanRange({
   chain = "evm",
   fromBlock,
   toBlock,
-  receiptConcurrency = DEFAULT_RECEIPT_CONCURRENCY
+  receiptConcurrency = DEFAULT_RECEIPT_CONCURRENCY,
+  receiptDelayMs = DEFAULT_RECEIPT_DELAY_MS
 }) {
   if (!Number.isInteger(fromBlock) || !Number.isInteger(toBlock) || fromBlock > toBlock) {
     throw new Error("invalid block range");
@@ -72,5 +83,10 @@ export async function scanRange({
     }
   }
 
-  return enrichReceipts(rpcUrl, observations, receiptConcurrency);
+  return enrichReceipts(
+    rpcUrl,
+    observations,
+    receiptConcurrency,
+    receiptDelayMs
+  );
 }
