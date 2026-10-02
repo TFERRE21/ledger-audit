@@ -85,6 +85,49 @@ async function handle(req, res) {
     return;
   }
 
+  if (pathname === "/api/recovery/summary") {
+    try {
+      const result = await queryDatabase(`
+        SELECT
+          COUNT(*) FILTER (WHERE recovery_status = 'not_authorized') AS blocked_cases,
+          COUNT(*) FILTER (WHERE recovery_status = 'authorized_pending_execution') AS authorized_cases,
+          COALESCE(SUM(CASE WHEN metadata->>'asset' = 'ETH' THEN 1 ELSE 0 END), 0) AS eth_cases
+        FROM investigation_cases
+      `);
+      const events = await queryDatabase(`
+        SELECT
+          COUNT(*) AS executions,
+          COALESCE(SUM(NULLIF(amount,'')::numeric),0) AS recovered_amount,
+          COALESCE(SUM(NULLIF(gas_amount,'')::numeric),0) AS gas_amount,
+          COALESCE(SUM(NULLIF(net_amount,'')::numeric),0) AS net_amount
+        FROM recovery_events
+        WHERE status = 'completed'
+      `);
+      res.end(JSON.stringify({ok:true,cases:result.rows[0],recoveries:events.rows[0]}));
+    } catch {
+      res.statusCode=503;
+      res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
+    return;
+  }
+
+  if (pathname === "/api/recovery/events") {
+    try {
+      const result = await queryDatabase(`
+        SELECT id, chain, case_id, tx_hash, asset, amount, gas_amount, net_amount,
+               destination, status, reason, created_at
+        FROM recovery_events
+        ORDER BY id DESC
+        LIMIT 100
+      `);
+      res.end(JSON.stringify({ok:true,events:result.rows}));
+    } catch {
+      res.statusCode=503;
+      res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
+    return;
+  }
+
   if (pathname === "/api/stats") {
     try {
       const result = await queryDatabase(`
