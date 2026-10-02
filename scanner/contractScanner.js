@@ -1,5 +1,11 @@
 import { rpcCall } from "../indexer/rpcClient.js";
 
+const STORAGE_SLOTS = {
+  implementation: "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+  admin: "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103",
+  beacon: "0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50"
+};
+
 const SELECTORS = {
   owner: "0x8da5cb5b",
   admin: "0xf851a440",
@@ -28,14 +34,23 @@ async function ethCall(rpcUrl, to, data) {
 export async function inspectContract(rpcUrl, address) {
   if (!isAddress(address)) return null;
 
-  const [code, balance] = await Promise.all([
+  const [code, balance, implementationSlot, adminSlot, beaconSlot] = await Promise.all([
     rpcCall(rpcUrl, "eth_getCode", [address, "latest"]),
-    rpcCall(rpcUrl, "eth_getBalance", [address, "latest"])
+    rpcCall(rpcUrl, "eth_getBalance", [address, "latest"]),
+    rpcCall(rpcUrl, "eth_getStorageAt", [address, STORAGE_SLOTS.implementation, "latest"]),
+    rpcCall(rpcUrl, "eth_getStorageAt", [address, STORAGE_SLOTS.admin, "latest"]),
+    rpcCall(rpcUrl, "eth_getStorageAt", [address, STORAGE_SLOTS.beacon, "latest"])
   ]);
 
   if (!code || code === "0x") return null;
 
   const signals = [];
+  const implementation = decodeAddress(implementationSlot);
+  const proxyAdmin = decodeAddress(adminSlot);
+  const beacon = decodeAddress(beaconSlot);
+  if (implementation) signals.push("EIP-1967 implementation slot");
+  if (proxyAdmin) signals.push("EIP-1967 admin slot");
+  if (beacon) signals.push("EIP-1967 beacon slot");
   const owner = decodeAddress(await ethCall(rpcUrl, address, SELECTORS.owner));
   const admin = decodeAddress(await ethCall(rpcUrl, address, SELECTORS.admin));
   const pendingOwner = decodeAddress(await ethCall(rpcUrl, address, SELECTORS.pendingOwner));
@@ -62,7 +77,10 @@ export async function inspectContract(rpcUrl, address) {
     ethBalanceWei: balanceWei,
     codeSizeBytes: Math.max(0, (code.length - 2) / 2),
     owner,
-    admin,
+    admin: admin || proxyAdmin,
+    proxyAdmin,
+    implementation,
+    beacon,
     pendingOwner,
     signals,
     methodSignals,
