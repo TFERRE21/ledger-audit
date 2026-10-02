@@ -7,6 +7,9 @@ export function getScanConfig(env = process.env) {
     monitor: String(env.MONITOR || "false").toLowerCase() === "true",
     intervalSeconds: Math.max(15, Number(env.SCAN_INTERVAL_SECONDS || 60)),
     recoveryMode: String(env.RECOVERY_MODE || "DRY_RUN").toUpperCase(),
-    authorizedDestination: env.AUTHORIZED_DESTINATION_ADDRESS || null
+    authorizedDestination: env.AUTHORIZED_DESTINATION_ADDRESS || null,
+    historicalScan: String(env.HISTORICAL_SCAN || "false").toLowerCase() === "true",
+    historicalStartBlock: Math.max(0, Number(env.HISTORICAL_START_BLOCK || 0)),
+    historicalBatchBlocks: Math.max(1, Number(env.HISTORICAL_BATCH_BLOCKS || 1000))
   };
 }
