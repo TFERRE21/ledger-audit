@@ -6,7 +6,7 @@
 </style></head><body>
 <header><div><h1>Ledger Audit</h1><div class="sub">Ethereum • descoberta, investigação e recuperação autorizada</div></div><div><span id="online" class="badge">● ONLINE</span><div id="updated" class="refresh">atualizando...</div></div></header>
 <main>
-<div class="section"><div class="card" id="ownerRequests"><h2>📨 Solicitações aos proprietários</h2><div id="authorizationConfigStatus" class="muted" style="margin:8px 0 14px"></div><div class="grid6"><div><div class="label">AGUARDANDO APROVAÇÃO</div><div id="reqPending" class="value">0</div></div><div><div class="label">APROVADAS</div><div id="reqApproved" class="value">0</div></div><div><div class="label">RECUSADAS</div><div id="reqRejected" class="value">0</div></div><div><div class="label">EXPIRADAS</div><div id="reqExpired" class="value">0</div></div><div><div class="label">TX ENVIADAS</div><div id="reqSent" class="value">0</div></div><div><div class="label">CONFIRMADAS</div><div id="reqConfirmed" class="value">0</div></div></div><div style="overflow:auto;margin-top:14px"><table><thead><tr><th>ID</th><th>Carteira</th><th>Caso</th><th>Rede</th><th>Destino</th><th>Status</th><th>Criada</th><th>Autorizada</th><th>Hash</th></tr></thead><tbody id="ownerRequestRows"></tbody></table></div></div></div><div class="grid">
+<div class="section"><div class="card" id="ownerRequests"><h2>📨 Solicitações aos proprietários</h2><div id="authorizationConfigStatus" class="muted" style="margin:8px 0 14px"></div><button onclick="backfillOwnerAuthorizations()" style="margin-bottom:14px">🔄 GERAR SOLICITAÇÕES DOS CASOS JÁ LOCALIZADOS</button><div class="grid6"><div><div class="label">AGUARDANDO APROVAÇÃO</div><div id="reqPending" class="value">0</div></div><div><div class="label">APROVADAS</div><div id="reqApproved" class="value">0</div></div><div><div class="label">RECUSADAS</div><div id="reqRejected" class="value">0</div></div><div><div class="label">EXPIRADAS</div><div id="reqExpired" class="value">0</div></div><div><div class="label">TX ENVIADAS</div><div id="reqSent" class="value">0</div></div><div><div class="label">CONFIRMADAS</div><div id="reqConfirmed" class="value">0</div></div></div><div style="overflow:auto;margin-top:14px"><table><thead><tr><th>ID</th><th>Carteira</th><th>Caso</th><th>Rede</th><th>Destino</th><th>Status</th><th>Criada</th><th>Autorizada</th><th>Hash</th></tr></thead><tbody id="ownerRequestRows"></tbody></table></div></div></div><div class="grid">
 <div class="card"><div class="label">TRANSAÇÕES</div><div id="transactions" class="value">—</div></div><div class="card"><div class="label">CASOS</div><div id="cases" class="value">—</div></div><div class="card"><div class="label">ALTA CONFIANÇA</div><div id="high" class="value">—</div></div><div class="card"><div class="label">CANDIDATOS AUTORIZADOS</div><div id="authorized" class="value">—</div></div>
 </div>
 <div class="grid section">
@@ -98,6 +98,18 @@ function openOpportunity(type,id){
       '<div class="detailbox"><b>Evidências</b><p>'+esc((x.evidence||[]).join(" • ")||"nenhuma")+'</p></div>'+
       '<div class="detailbox"><b>Metadados</b><pre class="logbox" style="min-height:0;max-height:220px">'+esc(JSON.stringify(m,null,2))+'</pre></div>'+
       '<p class="muted">A classificação é investigativa. Propriedade e autoridade precisam ser comprovadas antes de qualquer recuperação.</p>';
+  }
+}
+
+async function backfillOwnerAuthorizations(){
+  try{
+    const response=await fetch("/api/recovery/authorizations/backfill",{method:"POST"});
+    const result=await response.json();
+    if(!result.ok) throw new Error(result.error||"backfill_failed");
+    alert("Processamento concluído. As solicitações dos casos já localizados foram atualizadas.");
+    await load();
+  }catch(error){
+    alert("Não foi possível gerar as solicitações: "+error.message);
   }
 }
 
