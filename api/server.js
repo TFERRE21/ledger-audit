@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { pool } from "../database/connection.js";
 import { rpcCall } from "../indexer/rpcClient.js";
 import { ethers } from "ethers";
-import { getRecoveryRegistryReadContract, isRecoveryRegistryConfigured } from "../blockchain/recoveryRegistry.js";
+import { createOnChainRecoveryRequest, getRecoveryRegistryReadContract, isRecoveryRegistryConfigured } from "../blockchain/recoveryRegistry.js";
 import {
   buildOwnerAuthorizationMessage,
   verifyOwnerAuthorization
@@ -1183,6 +1183,72 @@ async function handle(req, res) {
         ok: false,
         error: "authorization_verification_failed"
       }));
+    }
+    return;
+  }
+
+  if (pathname === "/api/recovery/authorizations/publish-missing" && req.method === "POST") {
+    try {
+      if (!isRecoveryRegistryConfigured()) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ ok:false, error:"recovery_registry_not_configured" }));
+        return;
+      }
+
+      const registry = getRecoveryRegistryReadContract();
+      const result = await queryDatabase(`
+        SELECT ra.id, ra.case_id, ra.owner_address, ra.destination, ra.expires_at,
+               ra.onchain_request_id, ic.chain, ic.metadata
+        FROM recovery_authorizations ra
+        LEFT JOIN investigation_cases ic ON ic.id = ra.case_id
+        WHERE ra.status = 'pending' AND ra.onchain_request_id IS NULL
+        ORDER BY ra.id ASC
+        LIMIT 200
+      `);
+
+      // Read contract is used only for the configured registry/provider here.
+      // The transaction itself is sent by createOnChainRecoveryRequest below.
+      void registry;
+
+      let published = 0;
+      for (const row of result.rows) {
+        try {
+          const metadata = safeMetadata(row.metadata);
+          let amountWei = "0";
+          if (metadata.amountWei) amountWei = BigInt(metadata.amountWei).toString();
+          else {
+            const amount = metadata.amount ?? metadata.value ?? metadata.recoveryAmount;
+            if (amount !== undefined && amount !== null && String(amount).trim() !== "") {
+              amountWei = ethers.parseEther(String(amount).trim()).toString();
+            }
+          }
+
+          const onChain = await createOnChainRecoveryRequest({
+            owner: row.owner_address,
+            caseId: row.case_id,
+            chainId: Number(process.env.RECOVERY_REGISTRY_CHAIN_ID || 1),
+            amountWei,
+            destination: row.destination,
+            expiresAt: row.expires_at
+          });
+
+          await queryDatabase(
+            `UPDATE recovery_authorizations
+             SET onchain_request_id = $1, onchain_tx_hash = $2
+             WHERE id = $3`,
+            [onChain.requestId, onChain.txHash, row.id]
+          );
+          published++;
+        } catch (error) {
+          console.error("[AUTHORIZATION_ONCHAIN_PUBLISH_ITEM]", row.id, error.message);
+        }
+      }
+
+      res.end(JSON.stringify({ ok:true, checked:result.rows.length, published }));
+    } catch (error) {
+      console.error("[AUTHORIZATION_ONCHAIN_PUBLISH]", error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok:false, error:"authorization_onchain_publish_failed" }));
     }
     return;
   }
