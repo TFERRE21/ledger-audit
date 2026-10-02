@@ -228,9 +228,15 @@ async function backfillOpportunityAuthorizationRequests() {
     created++;
   }
 
-  console.log(
-    `[AUTHORIZATION_BACKFILL] created=${created} candidates=${result.rows.length} skippedWithoutOwner=${skippedWithoutOwner} skippedExisting=${skippedExisting} destination=${destination}`
-  );
+  const summary = {
+    created,
+    candidates: result.rows.length,
+    skippedWithoutOwner,
+    skippedExisting,
+    destination
+  };
+  console.log("[AUTHORIZATION_BACKFILL]", JSON.stringify(summary));
+  return summary;
 }
 
 async function markScannerRestarting(reason) {
@@ -1178,8 +1184,8 @@ async function handle(req, res) {
 
   if (pathname === "/api/recovery/authorizations/backfill" && req.method === "POST") {
     try {
-      await backfillOpportunityAuthorizationRequests();
-      res.end(JSON.stringify({ ok: true, message: "authorization_backfill_completed" }));
+      const result = await backfillOpportunityAuthorizationRequests();
+      res.end(JSON.stringify({ ok: true, ...result }));
     } catch (error) {
       console.error("[AUTHORIZATION_BACKFILL_API]", error);
       res.statusCode = 500;
