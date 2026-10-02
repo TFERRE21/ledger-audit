@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { pool } from "../database/connection.js";
 import { rpcCall } from "../indexer/rpcClient.js";
+import { ethers } from "ethers";
 import {
   buildOwnerAuthorizationMessage,
   verifyOwnerAuthorization
@@ -57,6 +58,10 @@ const schemaReady = pool.query(`
     ON recovery_authorizations(case_id);
   CREATE INDEX IF NOT EXISTS idx_recovery_authorizations_status
     ON recovery_authorizations(status);
+  ALTER TABLE recovery_authorizations
+    ADD COLUMN IF NOT EXISTS transaction_hash TEXT;
+  ALTER TABLE recovery_authorizations
+    ADD COLUMN IF NOT EXISTS transaction_chain_id TEXT;
   CREATE TABLE IF NOT EXISTS scan_progress (
     chain TEXT PRIMARY KEY,
     next_block BIGINT NOT NULL DEFAULT 0,
@@ -630,6 +635,270 @@ async function handle(req, res) {
         ok: false,
         error: "database_unavailable"
       }));
+    }
+    return;
+  }
+
+  if (pathname === "/api/recovery/transaction-submitted" && req.method === "POST") {
+    try {
+      const body = await readJsonBody(req);
+      const authorizationId = Number(body.authorization_id);
+      const txHash = String(body.tx_hash || "").trim();
+      const ownerAddress = normalizeAddress(body.owner_address);
+      const chainId = String(body.chain_id || "").trim();
+
+      if (!Number.isInteger(authorizationId) || authorizationId <= 0 || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok:false, error:"invalid_transaction_submission" }));
+        return;
+      }
+
+      const result = await queryDatabase(`
+        SELECT id, case_id, owner_address, destination, status, expires_at
+        FROM recovery_authorizations
+        WHERE id = $1
+        LIMIT 1
+      `, [authorizationId]);
+
+      const authorization = result.rows[0];
+
+      if (!authorization) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ ok:false, error:"authorization_not_found" }));
+        return;
+      }
+
+      if (authorization.status !== "pending" && authorization.status !== "submitted_pending_confirmation") {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ ok:false, error:"authorization_not_pending", status:authorization.status }));
+        return;
+      }
+
+      if (new Date(authorization.expires_at).getTime() <= Date.now()) {
+        res.statusCode = 410;
+        res.end(JSON.stringify({ ok:false, error:"authorization_expired" }));
+        return;
+      }
+
+      if (!ownerAddress || ownerAddress !== String(authorization.owner_address).toLowerCase()) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ ok:false, error:"owner_address_mismatch" }));
+        return;
+      }
+
+      const tx = await rpcCall(process.env.RPC_URL, "eth_getTransactionByHash", [txHash]);
+      if (!tx) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ ok:false, error:"transaction_not_found_yet" }));
+        return;
+      }
+
+      const from = normalizeAddress(tx.from);
+      const to = normalizeAddress(tx.to);
+
+      if (from !== String(authorization.owner_address).toLowerCase()) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ ok:false, error:"transaction_sender_mismatch" }));
+        return;
+      }
+
+      if (to !== String(authorization.destination).toLowerCase()) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ ok:false, error:"transaction_destination_mismatch" }));
+        return;
+      }
+
+      const caseResult = await queryDatabase(`
+        SELECT id, chain, metadata
+        FROM investigation_cases
+        WHERE id = $1
+        LIMIT 1
+      `, [authorization.case_id]);
+
+      const caseRow = caseResult.rows[0];
+      if (!caseRow) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ ok:false, error:"case_not_found" }));
+        return;
+      }
+
+      const metadata = safeMetadata(caseRow.metadata);
+      const asset = String(metadata.asset || metadata.token || "ETH").toUpperCase();
+      if (asset !== "ETH") {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ ok:false, error:"only_native_eth_supported_in_first_version" }));
+        return;
+      }
+
+      const expectedAmount = metadata.amount ?? metadata.value ?? metadata.recoveryAmount;
+      if (expectedAmount === undefined || expectedAmount === null || String(expectedAmount).trim() === "") {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ ok:false, error:"authorization_amount_missing" }));
+        return;
+      }
+
+      let expectedWei;
+      try {
+        expectedWei = ethers.parseEther(String(expectedAmount).trim()).toString();
+      } catch {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ ok:false, error:"invalid_authorization_amount" }));
+        return;
+      }
+
+      const actualWei = BigInt(tx.value || "0x0").toString();
+      if (actualWei !== expectedWei) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({
+          ok:false,
+          error:"transaction_value_mismatch",
+          expectedWei,
+          actualWei
+        }));
+        return;
+      }
+
+      await queryDatabase(`
+        UPDATE recovery_authorizations
+        SET status = 'submitted_pending_confirmation',
+            transaction_hash = $1,
+            transaction_chain_id = $2
+        WHERE id = $3
+      `, [txHash, chainId || null, authorizationId]);
+
+      res.end(JSON.stringify({
+        ok:true,
+        status:"submitted_pending_confirmation",
+        transactionHash:txHash
+      }));
+    } catch (error) {
+      console.error("[RECOVERY_TX_SUBMITTED]", error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok:false, error:"transaction_validation_failed" }));
+    }
+    return;
+  }
+
+  if (pathname === "/api/recovery/transaction-status" && req.method === "GET") {
+    try {
+      const authorizationId = Number(requestUrl.searchParams.get("authorization_id"));
+
+      if (!Number.isInteger(authorizationId) || authorizationId <= 0) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok:false, error:"invalid_authorization_id" }));
+        return;
+      }
+
+      const result = await queryDatabase(`
+        SELECT id, case_id, owner_address, destination, status,
+               transaction_hash, transaction_chain_id
+        FROM recovery_authorizations
+        WHERE id = $1
+        LIMIT 1
+      `, [authorizationId]);
+
+      const authorization = result.rows[0];
+      if (!authorization) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ ok:false, error:"authorization_not_found" }));
+        return;
+      }
+
+      if (!authorization.transaction_hash) {
+        res.end(JSON.stringify({ ok:true, status:authorization.status }));
+        return;
+      }
+
+      const receipt = await rpcCall(
+        process.env.RPC_URL,
+        "eth_getTransactionReceipt",
+        [authorization.transaction_hash]
+      );
+
+      if (!receipt) {
+        res.end(JSON.stringify({
+          ok:true,
+          status:"submitted_pending_confirmation",
+          transactionHash:authorization.transaction_hash
+        }));
+        return;
+      }
+
+      if (receipt.status !== "0x1") {
+        await queryDatabase(`
+          UPDATE recovery_authorizations
+          SET status = 'failed'
+          WHERE id = $1
+        `, [authorizationId]);
+
+        res.end(JSON.stringify({
+          ok:true,
+          status:"failed",
+          transactionHash:authorization.transaction_hash
+        }));
+        return;
+      }
+
+      const caseResult = await queryDatabase(`
+        SELECT id, metadata
+        FROM investigation_cases
+        WHERE id = $1
+        LIMIT 1
+      `, [authorization.case_id]);
+
+      const caseRow = caseResult.rows[0];
+      const metadata = safeMetadata(caseRow?.metadata);
+
+      const updatedMetadata = {
+        ...metadata,
+        ownerAddress: authorization.owner_address,
+        ownerVerified: true,
+        ownerAuthorizationId: authorization.id,
+        ownerAuthorizationAt: new Date().toISOString(),
+        recoveryAuthorityVerified: true,
+        recoveryMechanismVerified: true,
+        recoveryMechanismType: "OWNER_WALLET_TRANSACTION",
+        recoveryAuthorizationVerified: true,
+        recoveryAuthorizationDestination: authorization.destination,
+        recoveryTransactionHash: authorization.transaction_hash
+      };
+
+      await queryDatabase(`
+        UPDATE recovery_authorizations
+        SET status = 'authorized',
+            authorized_at = NOW()
+        WHERE id = $1
+      `, [authorizationId]);
+
+      await queryDatabase(`
+        UPDATE investigation_cases
+        SET ownership_status = 'verified',
+            recovery_status = 'authorized_pending_execution',
+            metadata = $1::jsonb
+        WHERE id = $2
+      `, [JSON.stringify(updatedMetadata), authorization.case_id]);
+
+      await queryDatabase(`
+        UPDATE recovery_events
+        SET status = 'completed',
+            tx_hash = $1,
+            destination = $2,
+            reason = 'owner_approved_and_transaction_confirmed',
+            updated_at = NOW()
+        WHERE case_id = $3
+          AND status IN ('blocked', 'pending', 'authorized_pending_execution')
+      `, [authorization.transaction_hash, authorization.destination, authorization.case_id]);
+
+      res.end(JSON.stringify({
+        ok:true,
+        status:"confirmed",
+        transactionHash:authorization.transaction_hash,
+        blockNumber:receipt.blockNumber
+      }));
+    } catch (error) {
+      console.error("[RECOVERY_TX_STATUS]", error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok:false, error:"transaction_status_failed" }));
     }
     return;
   }
