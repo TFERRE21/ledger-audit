@@ -51,6 +51,17 @@ async function handle(req, res) {
     return;
   }
 
+  if (pathname === "/api/recovery") {
+    res.end(JSON.stringify({
+      ok: true,
+      mode: String(process.env.RECOVERY_MODE || "DRY_RUN").toUpperCase(),
+      authorizedDestinationConfigured: Boolean(process.env.AUTHORIZED_DESTINATION_ADDRESS),
+      authorizedDestination: process.env.AUTHORIZED_DESTINATION_ADDRESS || null,
+      execution: "disabled_until_ownership_and_recovery_mechanism_are_verified"
+    }));
+    return;
+  }
+
   if (pathname === "/api/stats") {
     try {
       const result = await queryDatabase(`
@@ -71,7 +82,7 @@ async function handle(req, res) {
   if (pathname === "/api/transactions") {
     try {
       const result = await queryDatabase(`
-        SELECT chain, tx_hash, block_number, from_address, to_address, value, status, observed_at
+        SELECT chain, tx_hash, block_number, from_address, to_address, value, status, gas_used, token_transfers, observed_at
         FROM transactions
         ORDER BY id DESC
         LIMIT 100
@@ -88,7 +99,7 @@ async function handle(req, res) {
     try {
       const result = await queryDatabase(`
         SELECT id, chain, tx_hash, confidence, ownership_status, recovery_status,
-               findings, evidence, created_at, updated_at
+               findings, evidence, metadata, created_at, updated_at
         FROM investigation_cases
         ORDER BY id DESC
         LIMIT 100
