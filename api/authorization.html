@@ -102,8 +102,14 @@ Carregando...
 </div>
 
 <button id="authorize" disabled>
-AUTORIZAR RECUPERAÇÃO
+ASSINAR E AUTORIZAR ESTA SOLICITAÇÃO
 </button>
+
+<button id="share" type="button" disabled style="background:#244a7a">
+COMPARTILHAR SOLICITAÇÃO
+</button>
+
+<div id="messageBox" class="status" style="display:none;white-space:pre-wrap;font-family:monospace;font-size:12px"></div>
 
 <div id="status" class="status">
 Aguardando...
@@ -165,8 +171,13 @@ async function load(){
       </div>
 
       <div class="row">
-        <div class="label">Origem</div>
+        <div class="label">Origem / proprietário</div>
         <div class="address">${esc(authorization.owner_address)}</div>
+      </div>
+
+      <div class="row">
+        <div class="label">Transação</div>
+        <div class="address">${esc(authorization.tx_hash || "não informado")}</div>
       </div>
 
       <div class="row">
@@ -176,7 +187,12 @@ async function load(){
 
       <div class="row">
         <div class="label">Valor</div>
-        <div>${esc(authorization.amount || "a confirmar")}</div>
+        <div>${esc((authorization.metadata && (authorization.metadata.amount ?? authorization.metadata.value ?? authorization.metadata.recoveryAmount)) || "a confirmar")}</div>
+      </div>
+
+      <div class="row">
+        <div class="label">Mensagem assinada</div>
+        <div><button id="showMessage" type="button" style="margin-top:0;background:#244a7a">VER MENSAGEM</button></div>
       </div>
 
       <div class="row">
@@ -198,6 +214,35 @@ async function load(){
     $("status").textContent =
       "Erro: " + error.message;
 
+  }
+}
+
+async function shareRequest(){
+
+  const url = location.href;
+  const text = "Solicitação de autorização de recuperação — confira os dados e assine somente se você for o proprietário.";
+
+  try{
+    if(navigator.share){
+      await navigator.share({
+        title:"Autorização de recuperação",
+        text,
+        url
+      });
+      $("status").textContent = "Solicitação compartilhada.";
+    }else{
+      await navigator.clipboard.writeText(url);
+      $("status").textContent = "Link da solicitação copiado. Envie ao proprietário por um canal seguro.";
+    }
+  }catch(error){
+    if(error?.name !== "AbortError"){
+      try{
+        await navigator.clipboard.writeText(url);
+        $("status").textContent = "Link copiado. Envie ao proprietário por um canal seguro.";
+      }catch{
+        $("status").textContent = "Link da solicitação: " + url;
+      }
+    }
   }
 }
 
