@@ -45,9 +45,30 @@ async function scanOnce() {
     batchCases: 0
   });
 
-  console.log(`[SCAN] ${historical ? "HISTORICAL" : "LIVE"} blocks=${fromBlock}-${toBlock}`);
+  console.log(
+    `[SCAN] ${historical ? "HISTORICAL" : "LIVE"} blocks=${fromBlock}-${toBlock} ` +
+    `blockConcurrency=${config.blockConcurrency}`
+  );
 
-  const transactions = await scanRange({ ...config, fromBlock, toBlock });
+  const transactions = await scanRange({
+    ...config,
+    fromBlock,
+    toBlock,
+    onProgress: async progress => {
+      await setScanProgress(config.chain, progress.currentBlock, {
+        currentBlock: progress.currentBlock,
+        status: historical ? "scanning_historical" : "scanning_live",
+        batchTransactions: progress.transactions,
+        batchCases: 0
+      });
+
+      console.log(
+        `[SCAN] progress block=${progress.currentBlock} ` +
+        `blocks=${progress.scannedBlocks}/${progress.totalBlocks} tx=${progress.transactions}`
+      );
+    }
+  });
+
   let savedTransactions = 0;
   let savedCases = 0;
   let recoveryCandidates = 0;
