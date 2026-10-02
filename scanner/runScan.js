@@ -1,9 +1,10 @@
 import { getScanConfig } from "./config.js";
 import { getLatestBlock, scanRange } from "./rangeScanner.js";
 import { investigateTransaction } from "../analyzers/caseEngine.js";
-import { saveTransaction, saveCase, getScanProgress, setScanProgress, saveScanLog, saveContractFinding } from "../database/repository.js";
+import { saveTransaction, saveCase, getScanProgress, setScanProgress, saveScanLog, saveContractFinding, saveRecoveryEvent } from "../database/repository.js";
 import { pool } from "../database/connection.js";
 import { scanContracts } from "./contractScanner.js";
+import { evaluateRecoveryGate } from "../recovery/guard.js";
 
 const config = getScanConfig();
 
@@ -92,11 +93,46 @@ async function scanOnce() {
     });
 
     if (caseData.findings.length > 0) {
-      await saveCase(caseData);
+      const caseId = await saveCase(caseData);
       savedCases++;
 
       if (caseData.recoveryEligible) {
         recoveryCandidates++;
+
+        const gate = evaluateRecoveryGate({
+          recoveryMode: config.recoveryMode,
+          autoRecovery: config.autoRecovery,
+          destination: config.authorizedDestination,
+          caseData,
+          sourceAddress: tx.from,
+          authorityAddress: tx.recoveryAuthorityAddress,
+          mechanismVerified: caseData.recoveryMechanismVerified,
+          signerAddress: config.recoverySignerAddress
+        });
+
+        const planStatus = gate.ready ? "authorized_pending_execution" : "blocked";
+        const reason = gate.ready ? "verified_recovery_ready_for_external_signer" : gate.reasons.join(",");
+        const planLog = `[RECOVERY_PLAN] tx=${caseData.hash} status=${planStatus} reason=${reason}`;
+
+        await saveRecoveryEvent({
+          chain: caseData.chain,
+          caseId,
+          txHash: caseData.hash,
+          asset: caseData.metadata?.asset ?? "ETH",
+          destination: gate.destination,
+          status: planStatus,
+          reason
+        });
+
+        await saveScanLog({
+          chain: config.chain,
+          blockNumber: tx.blockNumber,
+          level: gate.ready ? "recovery_ready" : "recovery_blocked",
+          message: planLog,
+          opportunity: gate.ready
+        });
+
+        console.log(planLog);
         const opportunityLog = `[OPPORTUNITY] tx=${caseData.hash} confidence=${caseData.confidence} recovery=${caseData.recoveryStatus}`;
         await saveScanLog({ chain: config.chain, blockNumber: tx.blockNumber, level: "opportunity", message: opportunityLog, opportunity: true });
         console.log(opportunityLog);
