@@ -334,11 +334,67 @@ async function handle(req, res) {
     return;
   }
 
+  if (pathname === "/api/research-queue") {
+    try {
+      const result = await queryDatabase(`
+        SELECT
+          cf.id, cf.chain, cf.address, cf.block_number,
+          cf.eth_balance_wei, cf.code_size_bytes,
+          cf.owner_address, cf.admin_address,
+          cf.implementation_address, cf.beacon_address,
+          cf.triage_status, cf.signals, cf.method_signals,
+          cf.evidence, cf.token_balances, cf.potential,
+          cf.created_at, cf.updated_at,
+          COALESCE(tx_stats.tx_count, 0) AS related_transactions
+        FROM contract_findings cf
+        LEFT JOIN (
+          SELECT lower(to_address) AS address, COUNT(*) AS tx_count
+          FROM transactions
+          WHERE to_address IS NOT NULL
+          GROUP BY lower(to_address)
+        ) tx_stats ON tx_stats.address = lower(cf.address)
+        ORDER BY
+          CASE cf.triage_status
+            WHEN 'PROXY_CONFIRMED' THEN 0
+            WHEN 'ACCESS_CONTROL_DETECTED' THEN 1
+            WHEN 'METHOD_DETECTED' THEN 2
+            WHEN 'BALANCE_DETECTED' THEN 3
+            ELSE 4
+          END,
+          CASE WHEN cf.eth_balance_wei::numeric > 0 THEN 0 ELSE 1 END,
+          cf.eth_balance_wei::numeric DESC,
+          cf.id DESC
+        LIMIT 200
+      `);
+      const queue = result.rows.map(x => ({
+        ...x,
+        research_status: x.triage_status === "PROXY_CONFIRMED" ||
+          x.triage_status === "ACCESS_CONTROL_DETECTED" ||
+          x.triage_status === "METHOD_DETECTED"
+          ? "REVIEW_TECHNICAL_SCOPE"
+          : x.eth_balance_wei !== "0"
+            ? "REVIEW_CONTRACT"
+            : "LOW_SIGNAL",
+        next_action: "IDENTIFY_PROJECT_AND_VERIFY_BOUNTY_SCOPE"
+      }));
+      res.end(JSON.stringify({
+        ok: true,
+        count: queue.length,
+        queue
+      }));
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
+    return;
+  }
+
   if (pathname === "/api/contracts") {
     try {
       const result = await queryDatabase(`
         SELECT id, chain, address, block_number, eth_balance_wei, code_size_bytes,
-               owner_address, admin_address, signals, method_signals, evidence, token_balances,
+               owner_address, admin_address, implementation_address, beacon_address,
+               triage_status, signals, method_signals, evidence, token_balances,
                potential, created_at, updated_at
         FROM contract_findings
         ORDER BY potential DESC, id DESC
