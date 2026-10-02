@@ -66,6 +66,7 @@ const schemaReady = pool.query(`
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(chain,address)
   );
   CREATE INDEX IF NOT EXISTS idx_contract_findings_potential ON contract_findings(potential);
+  ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS token_balances JSONB NOT NULL DEFAULT '[]'::jsonb;
 `);
 
 async function queryDatabase(sql, params = []) {
@@ -213,7 +214,7 @@ async function handle(req, res) {
       `);
       const contracts = await queryDatabase(`
         SELECT id, chain, address, block_number, eth_balance_wei, code_size_bytes,
-               owner_address, admin_address, signals, method_signals, evidence,
+               owner_address, admin_address, signals, method_signals, evidence, token_balances,
                potential, created_at, updated_at
         FROM contract_findings
         WHERE potential = TRUE
