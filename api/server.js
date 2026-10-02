@@ -235,6 +235,64 @@ async function handle(req, res) {
     return;
   }
 
+  if (pathname === "/api/reward-opportunities") {
+    try {
+      const result = await queryDatabase(`
+        SELECT
+          c.id, c.chain, c.tx_hash, c.block_number, c.confidence,
+          c.ownership_status, c.recovery_status, c.findings, c.evidence,
+          c.metadata, c.created_at, c.updated_at,
+          t.to_address, t.from_address,
+          cf.address AS contract_address, cf.owner_address, cf.admin_address,
+          cf.eth_balance_wei, cf.signals AS contract_signals,
+          cf.potential AS contract_potential
+        FROM investigation_cases c
+        LEFT JOIN transactions t ON t.tx_hash = c.tx_hash
+        LEFT JOIN contract_findings cf
+          ON lower(cf.address) = lower(t.to_address)
+        WHERE c.findings @> '[{"type":"possible_lost_funds"}]'::jsonb
+        ORDER BY
+          CASE WHEN c.confidence = 'high' THEN 0 ELSE 1 END,
+          c.id DESC
+        LIMIT 100
+      `);
+
+      const rows = result.rows.map(x => {
+        const ownership = String(x.ownership_status || "unknown").toLowerCase();
+        const hasContract = Boolean(x.contract_address);
+        const contractEvidence = Array.isArray(x.contract_signals) ? x.contract_signals.length > 0 : false;
+        let action = "VERIFY_OWNERSHIP";
+        let readiness = "NOT_READY";
+        if (hasContract && contractEvidence && ownership === "verified") {
+          action = "RESPONSIBLE_DISCLOSURE_REVIEW";
+          readiness = "REVIEW_READY";
+        } else if (hasContract && contractEvidence) {
+          action = "IDENTIFY_PROJECT_AND_BOUNTY_SCOPE";
+          readiness = "RESEARCH_READY";
+        }
+        return {
+          ...x,
+          reward_readiness: readiness,
+          next_action: action,
+          contract_evidence: contractEvidence
+        };
+      });
+
+      res.end(JSON.stringify({
+        ok: true,
+        count: rows.length,
+        research_ready: rows.filter(x => x.reward_readiness === "RESEARCH_READY").length,
+        review_ready: rows.filter(x => x.reward_readiness === "REVIEW_READY").length,
+        ownership_pending: rows.filter(x => x.reward_readiness === "NOT_READY").length,
+        opportunities: rows
+      }));
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
+    return;
+  }
+
   if (pathname === "/api/opportunities") {
     try {
       const result = await queryDatabase(`
