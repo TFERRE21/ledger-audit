@@ -137,6 +137,67 @@ function safeMetadata(value) {
     : {};
 }
 
+async function backfillOpportunityAuthorizationRequests() {
+  const destination = normalizeAddress(process.env.AUTHORIZED_DESTINATION_ADDRESS);
+  if (!destination) return;
+
+  const result = await queryDatabase(`
+    SELECT id, chain, hash, metadata
+    FROM investigation_cases
+    WHERE findings @> '[{"type":"possible_lost_funds"}]'::jsonb
+      AND metadata->>'ownerCandidateAddress' IS NOT NULL
+    ORDER BY id DESC
+    LIMIT 500
+  `);
+
+  let created = 0;
+  for (const row of result.rows) {
+    const metadata = safeMetadata(row.metadata);
+    const ownerAddress = normalizeAddress(metadata.ownerCandidateAddress);
+    if (!ownerAddress) continue;
+
+    const existing = await queryDatabase(`
+      SELECT id
+      FROM recovery_authorizations
+      WHERE case_id = $1
+        AND status IN ('pending','authorized','submitted_pending_confirmation')
+      LIMIT 1
+    `, [row.id]);
+
+    if (existing.rows.length) continue;
+
+    const nonce = randomBytes(24).toString("hex");
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    let amount = "a confirmar";
+    try {
+      if (metadata.amountWei) amount = ethers.formatEther(BigInt(metadata.amountWei));
+    } catch {}
+
+    const message = buildOwnerAuthorizationMessage({
+      domain: "Ledger Audit",
+      caseId: row.id,
+      chain: row.chain,
+      sourceAddress: ownerAddress,
+      destination,
+      amount,
+      expiresAt: expiresAt.toISOString(),
+      nonce
+    });
+
+    await queryDatabase(`
+      INSERT INTO recovery_authorizations
+        (case_id, owner_address, destination, nonce, message, status, expires_at)
+      VALUES ($1,$2,$3,$4,$5,'pending',$6)
+    `, [row.id, ownerAddress, destination, nonce, message, expiresAt]);
+
+    created++;
+  }
+
+  if (created) {
+    console.log(`[AUTHORIZATION_BACKFILL] created=${created}`);
+  }
+}
+
 async function markScannerRestarting(reason) {
   try {
     await queryDatabase(`
@@ -1233,6 +1294,9 @@ const server = createServer((req, res) => {
 
 server.listen(port, "0.0.0.0", () => {
   console.log(`ledger-audit listening on 0.0.0.0:${port}`);
+  void backfillOpportunityAuthorizationRequests().catch(error => {
+    console.error("[AUTHORIZATION_BACKFILL]", error.message);
+  });
   startScanner();
 });
 
