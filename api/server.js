@@ -45,6 +45,16 @@ const schemaReady = pool.query(`
   ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS speed_blocks_per_second DOUBLE PRECISION NOT NULL DEFAULT 0;
   ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS eta_seconds DOUBLE PRECISION;
   ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS log_line TEXT;
+  CREATE TABLE IF NOT EXISTS scan_logs (
+    id BIGSERIAL PRIMARY KEY,
+    chain TEXT NOT NULL,
+    block_number BIGINT,
+    level TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL,
+    opportunity BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_scan_logs_chain_created ON scan_logs(chain, created_at DESC);
 `);
 
 async function queryDatabase(sql, params = []) {
@@ -157,6 +167,40 @@ async function handle(req, res) {
         network: { latestBlock, firstActivityBlock },
         opportunities: opportunities.rows[0]
       }));
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
+    return;
+  }
+
+  if (pathname === "/api/scanner/logs") {
+    try {
+      const result = await queryDatabase(`
+        SELECT id, chain, block_number, level, message, opportunity, created_at
+        FROM scan_logs
+        ORDER BY id DESC
+        LIMIT 100
+      `);
+      res.end(JSON.stringify({ok:true,logs:result.rows}));
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
+    return;
+  }
+
+  if (pathname === "/api/opportunities") {
+    try {
+      const result = await queryDatabase(`
+        SELECT id, chain, tx_hash, confidence, ownership_status, recovery_status,
+               findings, evidence, metadata, created_at, updated_at
+        FROM investigation_cases
+        WHERE findings @> '[{"type":"possible_lost_funds"}]'::jsonb
+        ORDER BY id DESC
+        LIMIT 100
+      `);
+      res.end(JSON.stringify({ok:true,count:result.rows.length,opportunities:result.rows}));
     } catch {
       res.statusCode = 503;
       res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
