@@ -101,6 +101,52 @@ function openOpportunity(type,id){
   }
 }
 
+async function requestOwnerAuthorization(caseId){
+
+  try{
+    const response=await fetch("/api/recovery/authorization/create",{
+      method:"POST",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({case_id:Number(caseId)})
+    });
+
+    const result=await response.json();
+
+    if(!result.ok) throw new Error(result.error||"authorization_create_failed");
+
+    const relativeUrl=result.authorization.authorizationUrl;
+    const url=new URL(relativeUrl,location.origin).href;
+
+    const message=
+      "Solicitação de autorização de recuperação\\n\\n"+
+      "Confira o caso, origem, destino e valor antes de assinar.\\n"+
+      "Link: "+url;
+
+    if(navigator.share){
+      try{
+        await navigator.share({
+          title:"Autorização de recuperação",
+          text:message,
+          url
+        });
+      }catch(error){
+        if(error?.name!=="AbortError"){
+          await navigator.clipboard.writeText(url);
+          alert("Solicitação criada. O link foi copiado para envio ao proprietário.");
+        }
+      }
+    }else{
+      await navigator.clipboard.writeText(url);
+      alert("Solicitação criada. O link foi copiado para envio ao proprietário.");
+    }
+
+    await load();
+
+  }catch(error){
+    alert("Não foi possível criar a solicitação: "+error.message);
+  }
+}
+
 async function load(){
   try{
     const urls=["/api/stats","/api/balances","/api/prices","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events","/api/scanner/status","/api/scanner/logs","/api/opportunities","/api/contracts","/api/recovery"];
@@ -187,7 +233,13 @@ async function load(){
       const ready=type==="case"&&x.recovery_status==="authorized_pending_execution"&&x.ownership_status==="verified";
       const label=type==="contract"?"CONTRATO":"CASO";
       const ref=type==="contract"?short(x.address,16):short(x.tx_hash,16);
-      return '<tr class="click" onclick="openOpportunity(\''+type+'\','+Number(x.id)+')"><td>'+label+'</td><td>'+esc(x.id)+'</td><td>'+esc(x.block_number||"—")+'</td><td class="mono">'+esc(ref)+'</td><td>'+esc(x.confidence||"técnico")+'</td><td>'+esc(x.ownership_status||"não verificada")+'</td><td>'+esc(x.recovery_status||"não autorizado")+'</td><td><span class="status '+(ready?"ok":"medium")+'">'+(ready?"PRONTO PARA ASSINATURA":"BLOQUEADO")+'</span></td><td><button class="actionbtn" onclick="event.stopPropagation();openOpportunity(\''+type+'\','+Number(x.id)+')">VER</button></td></tr>';
+      const canRequest=type==="case" && x.recoveryEligible!==false && x.ownership_status==="verified" && x.recovery_status!=="authorized_pending_execution";
+      const action=type==="case"
+        ? (canRequest
+          ? '<button class="actionbtn" onclick="event.stopPropagation();requestOwnerAuthorization('+Number(x.id)+')">SOLICITAR AUTORIZAÇÃO</button> '
+          : '')
+        : '';
+      return '<tr class="click" onclick="openOpportunity(\''+type+'\','+Number(x.id)+')"><td>'+label+'</td><td>'+esc(x.id)+'</td><td>'+esc(x.block_number||"—")+'</td><td class="mono">'+esc(ref)+'</td><td>'+esc(x.confidence||"técnico")+'</td><td>'+esc(x.ownership_status||"não verificada")+'</td><td>'+esc(x.recovery_status||"não autorizado")+'</td><td><span class="status '+(ready?"ok":"medium")+'">'+(ready?"PRONTO PARA ASSINATURA":"BLOQUEADO")+'</span></td><td>'+action+'<button class="actionbtn" onclick="event.stopPropagation();openOpportunity(\''+type+'\','+Number(x.id)+')">VER</button></td></tr>';
     }).join("")||'<tr><td colspan="9" class="muted">Nenhuma oportunidade encontrada.</td></tr>';
 
     $("casesRows").innerHTML=(cj.cases||[]).slice(0,30).map(x=>{
