@@ -15,11 +15,18 @@ export function getRecoveryRegistry() {
   const rpcUrl = process.env.RECOVERY_REGISTRY_RPC_URL || process.env.RPC_URL;
   const registryAddress = process.env.RECOVERY_REGISTRY_ADDRESS;
   const operatorKey = process.env.RECOVERY_REGISTRY_OPERATOR_PRIVATE_KEY;
+  const expectedOperatorAddress = process.env.RECOVERY_REGISTRY_OPERATOR_ADDRESS;
 
   if (!rpcUrl || !registryAddress || !operatorKey) return null;
+  if (ethers.isAddress(operatorKey)) {
+    throw new Error("RECOVERY_REGISTRY_OPERATOR_PRIVATE_KEY recebeu um endereco publico. Use a chave privada da carteira operacional no segredo; o endereco publico deve ficar em RECOVERY_REGISTRY_OPERATOR_ADDRESS.");
+  }
 
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const wallet = new ethers.Wallet(operatorKey, provider);
+  if (expectedOperatorAddress && wallet.address.toLowerCase() !== expectedOperatorAddress.toLowerCase()) {
+    throw new Error("Operator key/address mismatch: key derives " + wallet.address + ", expected " + expectedOperatorAddress);
+  }
   return new ethers.Contract(registryAddress, RECOVERY_REGISTRY_ABI, wallet);
 }
 
@@ -27,7 +34,8 @@ export function isRecoveryRegistryConfigured() {
   return Boolean(
     (process.env.RECOVERY_REGISTRY_RPC_URL || process.env.RPC_URL) &&
     process.env.RECOVERY_REGISTRY_ADDRESS &&
-    process.env.RECOVERY_REGISTRY_OPERATOR_PRIVATE_KEY
+    process.env.RECOVERY_REGISTRY_OPERATOR_PRIVATE_KEY &&
+    !ethers.isAddress(process.env.RECOVERY_REGISTRY_OPERATOR_PRIVATE_KEY)
   );
 }
 
