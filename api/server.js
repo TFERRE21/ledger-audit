@@ -211,7 +211,21 @@ async function handle(req, res) {
         ORDER BY id DESC
         LIMIT 100
       `);
-      res.end(JSON.stringify({ok:true,count:result.rows.length,opportunities:result.rows}));
+      const contracts = await queryDatabase(`
+        SELECT id, chain, address, block_number, eth_balance_wei, code_size_bytes,
+               owner_address, admin_address, signals, method_signals, evidence,
+               potential, created_at, updated_at
+        FROM contract_findings
+        WHERE potential = TRUE
+        ORDER BY id DESC
+        LIMIT 100
+      `);
+      res.end(JSON.stringify({
+        ok:true,
+        count: result.rows.length + contracts.rows.length,
+        opportunities: result.rows,
+        contractOpportunities: contracts.rows
+      }));
     } catch {
       res.statusCode = 503;
       res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
