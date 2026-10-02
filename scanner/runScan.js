@@ -38,6 +38,15 @@ async function scanOnce() {
 
   if (toBlock < fromBlock) throw new Error("invalid scan range");
 
+  await setScanProgress(config.chain, fromBlock, {
+    currentBlock: fromBlock,
+    status: historical ? "scanning_historical" : "scanning_live",
+    batchTransactions: 0,
+    batchCases: 0
+  });
+
+  console.log(`[SCAN] ${historical ? "HISTORICAL" : "LIVE"} blocks=${fromBlock}-${toBlock}`);
+
   const transactions = await scanRange({ ...config, fromBlock, toBlock });
   let savedTransactions = 0;
   let savedCases = 0;
@@ -71,7 +80,19 @@ async function scanOnce() {
   }
 
   if (config.historicalScan && historical) {
-    await setScanProgress(config.chain, toBlock + 1);
+    await setScanProgress(config.chain, toBlock + 1, {
+      currentBlock: toBlock,
+      status: "batch_complete",
+      batchTransactions: savedTransactions,
+      batchCases: savedCases
+    });
+  } else {
+    await setScanProgress(config.chain, toBlock, {
+      currentBlock: toBlock,
+      status: "live_complete",
+      batchTransactions: savedTransactions,
+      batchCases: savedCases
+    });
   }
 
   console.log(JSON.stringify({
