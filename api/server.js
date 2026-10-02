@@ -159,6 +159,8 @@ async function backfillOpportunityAuthorizationRequests() {
   `);
 
   let created = 0;
+  let skippedWithoutOwner = 0;
+  let skippedExisting = 0;
   for (const row of result.rows) {
     // O from_address é apenas um candidato técnico para contato/autorização.
     // Ele não é tratado como prova de propriedade.
@@ -178,8 +180,13 @@ async function backfillOpportunityAuthorizationRequests() {
       };
     }
     const metadata = safeMetadata(row.metadata);
-    const ownerAddress = normalizeAddress(metadata.ownerCandidateAddress);
-    if (!ownerAddress) continue;
+    const ownerAddress = normalizeAddress(
+      metadata.ownerCandidateAddress || row.from_address
+    );
+    if (!ownerAddress) {
+      skippedWithoutOwner++;
+      continue;
+    }
 
     const existing = await queryDatabase(`
       SELECT id
@@ -189,7 +196,10 @@ async function backfillOpportunityAuthorizationRequests() {
       LIMIT 1
     `, [row.id]);
 
-    if (existing.rows.length) continue;
+    if (existing.rows.length) {
+      skippedExisting++;
+      continue;
+    }
 
     const nonce = randomBytes(24).toString("hex");
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
@@ -218,7 +228,9 @@ async function backfillOpportunityAuthorizationRequests() {
     created++;
   }
 
-  console.log(`[AUTHORIZATION_BACKFILL] created=${created} candidates=${result.rows.length} destination=${destination}`);
+  console.log(
+    `[AUTHORIZATION_BACKFILL] created=${created} candidates=${result.rows.length} skippedWithoutOwner=${skippedWithoutOwner} skippedExisting=${skippedExisting} destination=${destination}`
+  );
 }
 
 async function markScannerRestarting(reason) {
@@ -1160,6 +1172,18 @@ async function handle(req, res) {
         ok: false,
         error: "authorization_verification_failed"
       }));
+    }
+    return;
+  }
+
+  if (pathname === "/api/recovery/authorizations/backfill" && req.method === "POST") {
+    try {
+      await backfillOpportunityAuthorizationRequests();
+      res.end(JSON.stringify({ ok: true, message: "authorization_backfill_completed" }));
+    } catch (error) {
+      console.error("[AUTHORIZATION_BACKFILL_API]", error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: "authorization_backfill_failed" }));
     }
     return;
   }
