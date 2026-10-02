@@ -134,8 +134,7 @@ async function load(){
       ? (scannerProcess==="running"?"Última atualização do scanner: ":"Último estado salvo: ")+new Date(scanner.updated_at).toLocaleString("pt-BR")
       : "Scanner ainda não registrou atividade";
     $("scanSpeed").textContent=Number(scanner.speed_blocks_per_second||0).toFixed(1)+" blocos/s";
-    $("liveLog").textContent=(lgj.logs||[]).slice(0,100).reverse().map(x=>`[${new Date(x.created_at).toLocaleTimeString("pt-BR")}] ${x.message}`).join("
-")||scanner.log_line||"Aguardando logs do scanner...";
+    $("liveLog").textContent=(lgj.logs||[]).slice(0,100).reverse().map(x=>`[${new Date(x.created_at).toLocaleTimeString("pt-BR")}] ${x.message}`).join("\n")||scanner.log_line||"Aguardando logs do scanner...";
 
     const current=Number(scanner.current_block||0), first=Number(network.firstActivityBlock||46147), latest=Number(network.latestBlock||0);
     const pctFirst=first?Math.min(100,(current/first)*100):0, pctNetwork=latest?Math.min(100,(current/latest)*100):0;
