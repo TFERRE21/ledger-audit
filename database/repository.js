@@ -135,6 +135,30 @@ export async function saveCase(caseData) {
   return result.rows[0].id;
 }
 
+
+export async function saveRecoveryEvent(event) {
+  await schemaReady;
+  const result = await pool.query(
+    `INSERT INTO recovery_events
+      (chain, case_id, tx_hash, asset, amount, gas_amount, net_amount, destination, status, reason)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     RETURNING id`,
+    [
+      event.chain ?? null,
+      event.caseId ?? null,
+      event.txHash ?? null,
+      event.asset ?? null,
+      event.amount ?? null,
+      event.gasAmount ?? null,
+      event.netAmount ?? null,
+      event.destination ?? null,
+      event.status ?? "blocked",
+      event.reason ?? null
+    ]
+  );
+  return result.rows[0]?.id ?? null;
+}
+
 export async function getScanProgress(chain, defaultBlock = 0) {
   await schemaReady;
   const result = await pool.query(
