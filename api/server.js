@@ -556,18 +556,11 @@ async function handle(req, res) {
 
       const metadata = safeMetadata(caseRow.metadata);
 
-      if (metadata.recoveryEligible !== true) {
-        res.statusCode = 409;
-        res.end(JSON.stringify({
-          ok: false,
-          error: "case_not_recovery_eligible"
-        }));
-        return;
-      }
-
       const ownerAddress = normalizeAddress(
         metadata.ownerAddress ||
         metadata.owner_address ||
+        metadata.ownerCandidateAddress ||
+        metadata.owner_candidate_address ||
         metadata.recoveryAuthorityAddress ||
         metadata.recovery_authority_address
       );
@@ -597,16 +590,20 @@ async function handle(req, res) {
         sourceAddress:
           metadata.sourceAddress ||
           metadata.source_address ||
+          metadata.ownerCandidateAddress ||
+          metadata.owner_candidate_address ||
           metadata.recoverySourceAddress ||
           metadata.recovery_source_address ||
           "",
         destination,
-        amount:
-          metadata.amount ??
-          metadata.value ??
-          metadata.recoveryAmount ??
-          metadata.recovery_amount ??
-          "a confirmar",
+        amount: (() => {
+          const value = metadata.amount ?? metadata.value ?? metadata.recoveryAmount ?? metadata.recovery_amount;
+          if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+          try {
+            if (metadata.amountWei) return ethers.formatEther(BigInt(metadata.amountWei));
+          } catch {}
+          return "a confirmar";
+        })(),
         expiresAt,
         nonce
       });
