@@ -9,7 +9,12 @@
 <div class="grid">
 <div class="card"><div class="label">TRANSAÇÕES</div><div id="transactions" class="value">—</div></div><div class="card"><div class="label">CASOS</div><div id="cases" class="value">—</div></div><div class="card"><div class="label">ALTA CONFIANÇA</div><div id="high" class="value">—</div></div><div class="card"><div class="label">CANDIDATOS AUTORIZADOS</div><div id="authorized" class="value">—</div></div>
 </div>
-<div class="grid section"><div class="card opportunity"><div class="label">SALDO ETH DETECTADO EM CONTRATOS</div><div class="value" id="balanceEth">0.000000000000000000 ETH</div><div class="muted" id="balanceMeta">0 contratos com saldo</div></div><div class="card"><div class="label">WEI DETECTADO</div><div class="value mono" id="balanceWei">0</div><div class="muted">somente saldos encontrados pelo scanner</div></div></div><div class="section"><div id="opportunityCard" class="card"><h2>Atividade do scanner <span id="opportunityStatus" class="status">MONITORANDO</span></h2><div class="grid6">
+<div class="grid section">
+<div class="card opportunity"><div class="label">SALDO ETH DETECTADO EM CONTRATOS</div><div class="value" id="balanceEth">0.000000000000000000 ETH</div><div class="muted" id="balanceMeta">0 contratos com saldo</div></div>
+<div class="card"><div class="label">VALOR EM DÓLAR</div><div class="value" id="balanceUsd">$ 0.00</div><div class="muted" id="priceUsd">ETH/USD: aguardando cotação</div></div>
+<div class="card"><div class="label">VALOR EM REAL</div><div class="value" id="balanceBrl">R$ 0,00</div><div class="muted" id="priceBrl">ETH/BRL: aguardando cotação</div></div>
+<div class="card"><div class="label">WEI DETECTADO</div><div class="value mono" id="balanceWei">0</div><div class="muted">somente saldos encontrados pelo scanner</div></div>
+</div><div class="section"><div id="opportunityCard" class="card"><h2>Atividade do scanner <span id="opportunityStatus" class="status">MONITORANDO</span></h2><div class="grid6">
 <div><div class="label">STATUS</div><div id="scanStatus" class="value">—</div></div>
 <div><div class="label">BLOCO ATUAL</div><div id="scanBlock" class="value">—</div></div>
 <div><div class="label">PRÓXIMO BLOCO</div><div id="scanNext" class="value">—</div></div>
@@ -98,13 +103,20 @@ function openOpportunity(type,id){
 
 async function load(){
   try{
-    const urls=["/api/stats","/api/balances","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events","/api/scanner/status","/api/scanner/logs","/api/opportunities","/api/contracts","/api/recovery"];
+    const urls=["/api/stats","/api/balances","/api/prices","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events","/api/scanner/status","/api/scanner/logs","/api/opportunities","/api/contracts","/api/recovery"];
     const responses=await Promise.all(urls.map(u=>fetch(u)));
-    const [sj,bj,cj,tj,hj,rj,ej,scj,lgj,opj,ctj,rr]=await Promise.all(responses.map(r=>r.json()));
-    const st=sj.stats||{}, bal=bj||{}, cs=rj.cases||{}, rc=rj.recoveries||{};
+    const [sj,bj,pj,cj,tj,hj,rj,ej,scj,lgj,opj,ctj,rr]=await Promise.all(responses.map(r=>r.json()));
+    const st=sj.stats||{}, bal=bj||{}, price=pj||{}, cs=rj.cases||{}, rc=rj.recoveries||{};
     const scanner=(scj.scanners||[])[0]||{}, activity=scj.activity||{}, network=scj.network||{}, opps=scj.opportunities||{};
     const scannerProcess=scj.process||"stopped";
-    $("balanceEth").textContent=esc((bal.contractBalanceEth||"0.000000000000000000"))+" ETH"; $("balanceWei").textContent=esc(bal.contractBalanceWei||"0"); $("balanceMeta").textContent=fmt(bal.fundedContracts||0)+" contrato(s) com saldo detectado";\n    $("transactions").textContent=fmt(st.transactions);
+    const balanceEth=Number(bal.contractBalanceEth||0), ethUsd=Number(price.ethUsd||0), ethBrl=Number(price.ethBrl||0);
+    $("balanceEth").textContent=balanceEth.toLocaleString("pt-BR",{minimumFractionDigits:18,maximumFractionDigits:18})+" ETH";
+    $("balanceWei").textContent=esc(bal.contractBalanceWei||"0");
+    $("balanceMeta").textContent=fmt(bal.fundedContracts||0)+" contrato(s) com saldo detectado";
+    $("balanceUsd").textContent=ethUsd>0?(balanceEth*ethUsd).toLocaleString("en-US",{style:"currency",currency:"USD"}):"$ 0.00";
+    $("balanceBrl").textContent=ethBrl>0?(balanceEth*ethBrl).toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):"R$ 0,00";
+    $("priceUsd").textContent=ethUsd>0?"ETH/USD: "+ethUsd.toLocaleString("en-US",{style:"currency",currency:"USD"}):"ETH/USD: cotação indisponível";
+    $("priceBrl").textContent=ethBrl>0?"ETH/BRL: "+ethBrl.toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):"ETH/BRL: cotação indisponível";\n    $("transactions").textContent=fmt(st.transactions);
     $("cases").textContent=fmt(st.cases);
     $("high").textContent=fmt(st.high_confidence_cases);
     $("authorized").textContent=fmt(st.recovery_candidates);
