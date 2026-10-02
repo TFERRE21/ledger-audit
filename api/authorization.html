@@ -203,10 +203,22 @@ async function load(){
       </div>
     `;
 
-    $("authorize").disabled = false;
+    $("authorize").disabled = authorization.status !== "pending";
+    $("share").disabled = false;
+    $("share").onclick = shareRequest;
 
     $("status").textContent =
-      "Confira os dados e autorize somente se forem corretos.";
+      authorization.status === "pending"
+        ? "Confira os dados e autorize somente se forem corretos."
+        : "Esta solicitação já não está pendente.";
+
+    const showMessage = document.getElementById("showMessage");
+    if (showMessage) {
+      showMessage.onclick = () => {
+        $("messageBox").style.display = "block";
+        $("messageBox").textContent = authorization.message;
+      };
+    }
 
   }catch(error){
 
