@@ -22,6 +22,11 @@ const schemaReady = pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_recovery_events_status ON recovery_events(status);
   CREATE INDEX IF NOT EXISTS idx_recovery_events_chain ON recovery_events(chain);
+  CREATE TABLE IF NOT EXISTS scan_progress (
+    chain TEXT PRIMARY KEY,
+    next_block BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
 `);
 
 export async function saveTransaction(tx) {
@@ -74,4 +79,32 @@ export async function saveCase(caseData) {
   ];
   const result = await pool.query(query, values);
   return result.rows[0].id;
+}
+
+export async function getScanProgress(chain, defaultBlock = 0) {
+  await schemaReady;
+  const result = await pool.query(
+    `SELECT next_block FROM scan_progress WHERE chain = $1 LIMIT 1`,
+    [chain]
+  );
+  if (!result.rows.length) {
+    await pool.query(
+      `INSERT INTO scan_progress (chain, next_block) VALUES ($1,$2)
+       ON CONFLICT (chain) DO NOTHING`,
+      [chain, defaultBlock]
+    );
+    return defaultBlock;
+  }
+  return Number(result.rows[0].next_block);
+}
+
+export async function setScanProgress(chain, nextBlock) {
+  await schemaReady;
+  await pool.query(
+    `INSERT INTO scan_progress (chain, next_block, updated_at)
+     VALUES ($1,$2,NOW())
+     ON CONFLICT (chain)
+     DO UPDATE SET next_block = EXCLUDED.next_block, updated_at = NOW()`,
+    [chain, nextBlock]
+  );
 }
