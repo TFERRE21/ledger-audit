@@ -5,9 +5,10 @@
   "description": "Blockchain transaction auditing and reconciliation toolkit",
   "type": "module",
   "scripts": {
-    "start": "node api/server.js",
-    "dev": "node api/server.js",
+    "start": "node start.js",
+    "dev": "node start.js",
     "scan": "node scanner/runScan.js",
+    "api": "node api/server.js",
     "test": "node --test"
   },
   "dependencies": {
