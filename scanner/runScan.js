@@ -1,6 +1,8 @@
 import { getScanConfig } from "./config.js";
 import { getLatestBlock, scanRange } from "./rangeScanner.js";
 import { investigateTransaction } from "../analyzers/caseEngine.js";
+import { saveTransaction, saveCase } from "../database/repository.js";
+import { pool } from "../database/connection.js";
 
 const config = getScanConfig();
 
@@ -17,24 +19,31 @@ if (fromBlock === 0 && toBlock === 0) {
   fromBlock = Math.max(0, toBlock - 4);
 }
 
-if (toBlock < fromBlock) {
-  throw new Error("invalid scan range");
+if (toBlock < fromBlock) throw new Error("invalid scan range");
+
+try {
+  const transactions = await scanRange({ ...config, fromBlock, toBlock });
+  let savedTransactions = 0;
+  let savedCases = 0;
+
+  for (const tx of transactions) {
+    await saveTransaction(tx);
+    savedTransactions++;
+
+    const caseData = investigateTransaction(tx);
+    if (caseData.findings.length > 0) {
+      await saveCase(caseData);
+      savedCases++;
+    }
+  }
+
+  console.log(JSON.stringify({
+    chain: config.chain,
+    blocks: { from: fromBlock, to: toBlock },
+    transactions: transactions.length,
+    savedTransactions,
+    savedCases
+  }, null, 2));
+} finally {
+  await pool.end();
 }
-
-const transactions = await scanRange({
-  ...config,
-  fromBlock,
-  toBlock
-});
-
-const cases = transactions
-  .map(investigateTransaction)
-  .filter(item => item.findings.length > 0);
-
-console.log(JSON.stringify({
-  chain: config.chain,
-  blocks: { from: fromBlock, to: toBlock },
-  transactions: transactions.length,
-  cases: cases.length,
-  findings: cases
-}, null, 2));
