@@ -11,20 +11,25 @@ if (!config.rpcUrl) {
   process.exit(1);
 }
 
-let fromBlock = config.fromBlock;
-let toBlock = config.toBlock;
-
-if (fromBlock === 0 && toBlock === 0) {
-  toBlock = await getLatestBlock(config.rpcUrl);
-  fromBlock = Math.max(0, toBlock - 4);
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-if (toBlock < fromBlock) throw new Error("invalid scan range");
+async function scanOnce() {
+  let fromBlock = config.fromBlock;
+  let toBlock = config.toBlock;
 
-try {
+  if (fromBlock === 0 && toBlock === 0) {
+    toBlock = await getLatestBlock(config.rpcUrl);
+    fromBlock = Math.max(0, toBlock - 4);
+  }
+
+  if (toBlock < fromBlock) throw new Error("invalid scan range");
+
   const transactions = await scanRange({ ...config, fromBlock, toBlock });
   let savedTransactions = 0;
   let savedCases = 0;
+  let recoveryCandidates = 0;
 
   for (const tx of transactions) {
     await saveTransaction(tx);
@@ -34,6 +39,18 @@ try {
     if (caseData.findings.length > 0) {
       await saveCase(caseData);
       savedCases++;
+
+      if (caseData.recoveryEligible) {
+        recoveryCandidates++;
+        console.log(JSON.stringify({
+          event: "RECOVERY_CANDIDATE",
+          txHash: caseData.hash,
+          chain: caseData.chain,
+          recoveryStatus: caseData.recoveryStatus,
+          mode: config.recoveryMode,
+          destination: config.authorizedDestination || "NOT_CONFIGURED"
+        }));
+      }
     }
   }
 
@@ -42,8 +59,25 @@ try {
     blocks: { from: fromBlock, to: toBlock },
     transactions: transactions.length,
     savedTransactions,
-    savedCases
+    savedCases,
+    recoveryCandidates,
+    recoveryMode: config.recoveryMode,
+    authorizedDestinationConfigured: Boolean(config.authorizedDestination)
   }, null, 2));
+
+  return toBlock;
+}
+
+try {
+  do {
+    await scanOnce();
+
+    if (!config.monitor) break;
+
+    await sleep(config.intervalSeconds * 1000);
+    config.fromBlock = 0;
+    config.toBlock = 0;
+  } while (true);
 } finally {
   await pool.end();
 }
