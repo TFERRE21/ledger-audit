@@ -4,6 +4,8 @@ const schemaReady = pool.query(`
   ALTER TABLE transactions
     ADD COLUMN IF NOT EXISTS token_transfers JSONB NOT NULL DEFAULT '[]'::jsonb;
   ALTER TABLE investigation_cases
+    ADD COLUMN IF NOT EXISTS block_number BIGINT;
+  ALTER TABLE investigation_cases
     ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
   CREATE TABLE IF NOT EXISTS recovery_events (
     id BIGSERIAL PRIMARY KEY,
@@ -89,10 +91,11 @@ export async function saveCase(caseData) {
   await schemaReady;
   const query = `
     INSERT INTO investigation_cases
-      (chain, tx_hash, confidence, ownership_status, recovery_status, findings, evidence, metadata)
-    VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)
+      (chain, tx_hash, block_number, confidence, ownership_status, recovery_status, findings, evidence, metadata)
+    VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb)
     ON CONFLICT (chain, tx_hash)
     DO UPDATE SET
+      block_number = EXCLUDED.block_number,
       confidence = EXCLUDED.confidence,
       findings = EXCLUDED.findings,
       ownership_status = EXCLUDED.ownership_status,
@@ -103,7 +106,7 @@ export async function saveCase(caseData) {
     RETURNING id
   `;
   const values = [
-    caseData.chain, caseData.hash, caseData.confidence,
+    caseData.chain, caseData.hash, caseData.blockNumber ?? null, caseData.confidence,
     caseData.ownershipStatus, caseData.recoveryStatus,
     JSON.stringify(caseData.findings), JSON.stringify(caseData.evidence),
     JSON.stringify(caseData.metadata ?? {})
