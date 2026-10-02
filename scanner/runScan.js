@@ -45,6 +45,7 @@ async function scanOnce() {
     batchCases: 0
   });
 
+  const scanStartedAt = Date.now();
   console.log(
     `[SCAN] ${historical ? "HISTORICAL" : "LIVE"} blocks=${fromBlock}-${toBlock} ` +
     `blockConcurrency=${config.blockConcurrency}`
@@ -55,17 +56,23 @@ async function scanOnce() {
     fromBlock,
     toBlock,
     onProgress: async progress => {
+      const elapsedSeconds = Math.max(0.001, (Date.now() - scanStartedAt) / 1000);
+      const speed = progress.scannedBlocks / elapsedSeconds;
+      const remainingBlocks = Math.max(0, progress.totalBlocks - progress.scannedBlocks);
+      const etaSeconds = speed > 0 ? remainingBlocks / speed : null;
+      const logLine = `[SCAN] progress block=${progress.currentBlock} blocks=${progress.scannedBlocks}/${progress.totalBlocks} tx=${progress.transactions}`;
+
       await setScanProgress(config.chain, progress.currentBlock + 1, {
         currentBlock: progress.currentBlock,
         status: historical ? "scanning_historical" : "scanning_live",
         batchTransactions: progress.transactions,
-        batchCases: 0
+        batchCases: 0,
+        speedBlocksPerSecond: speed,
+        etaSeconds,
+        logLine
       });
 
-      console.log(
-        `[SCAN] progress block=${progress.currentBlock} ` +
-        `blocks=${progress.scannedBlocks}/${progress.totalBlocks} tx=${progress.transactions}`
-      );
+      console.log(logLine);
     }
   });
 
