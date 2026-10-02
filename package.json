@@ -1,6 +1,6 @@
 {
   "name": "ledger-audit",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Blockchain transaction auditing and reconciliation toolkit",
   "type": "module",
