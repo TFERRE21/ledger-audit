@@ -48,6 +48,16 @@ const schemaReady = pool.query(`
     ADD COLUMN IF NOT EXISTS eta_seconds DOUBLE PRECISION;
   ALTER TABLE scan_progress
     ADD COLUMN IF NOT EXISTS log_line TEXT;
+  CREATE TABLE IF NOT EXISTS scan_logs (
+    id BIGSERIAL PRIMARY KEY,
+    chain TEXT NOT NULL,
+    block_number BIGINT,
+    level TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL,
+    opportunity BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_scan_logs_chain_created ON scan_logs(chain, created_at DESC);
 `);
 
 export async function saveTransaction(tx) {
@@ -160,4 +170,14 @@ export async function getScanStatus(chain) {
     [chain]
   );
   return result.rows[0] ?? null;
+}
+
+
+export async function saveScanLog({ chain, blockNumber = null, level = "info", message, opportunity = false }) {
+  await schemaReady;
+  await pool.query(
+    `INSERT INTO scan_logs (chain, block_number, level, message, opportunity)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [chain, blockNumber, level, message, Boolean(opportunity)]
+  );
 }
