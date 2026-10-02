@@ -53,6 +53,7 @@ export async function inspectContract(rpcUrl, address) {
   if (implementation) signals.push("EIP-1967 implementation slot");
   if (proxyAdmin) signals.push("EIP-1967 admin slot");
   if (beacon) signals.push("EIP-1967 beacon slot");
+  const proxyConfirmed = Boolean(implementation || beacon || proxyAdmin);
   const owner = decodeAddress(await ethCall(rpcUrl, address, SELECTORS.owner));
   const admin = decodeAddress(await ethCall(rpcUrl, address, SELECTORS.admin));
   const pendingOwner = decodeAddress(await ethCall(rpcUrl, address, SELECTORS.pendingOwner));
@@ -73,6 +74,18 @@ export async function inspectContract(rpcUrl, address) {
   let balanceWei = "0";
   try { balanceWei = BigInt(balance || "0x0").toString(); } catch {}
 
+  const hasBalance = BigInt(balance || "0x0") > 0n;
+  const hasAccessControl = Boolean(owner || admin || pendingOwner);
+  const triageStatus = proxyConfirmed
+    ? "PROXY_CONFIRMED"
+    : hasAccessControl
+      ? "ACCESS_CONTROL_DETECTED"
+      : methodSignals.length
+        ? "METHOD_DETECTED"
+        : hasBalance
+          ? "BALANCE_DETECTED"
+          : "CODE_DETECTED";
+
   return {
     address,
     isContract: true,
@@ -84,11 +97,14 @@ export async function inspectContract(rpcUrl, address) {
     implementation,
     beacon,
     pendingOwner,
+    proxyConfirmed,
+    triageStatus,
     signals,
     methodSignals,
-    potential: BigInt(balance || "0x0") > 0n || signals.length > 0 || methodSignals.length > 0,
+    potential: hasBalance || proxyConfirmed || hasAccessControl || methodSignals.length > 0,
     evidence: [
-      ...(BigInt(balance || "0x0") > 0n ? ["contract_has_eth_balance"] : []),
+      ...(hasBalance ? ["contract_has_eth_balance"] : []),
+      ...(proxyConfirmed ? ["proxy_confirmed"] : []),
       ...signals.map(x => `callable_${x}`),
       ...methodSignals.map(x => `callable_${x}`)
     ]
