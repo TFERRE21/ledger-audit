@@ -1214,7 +1214,7 @@ async function handle(req, res) {
           ra.authorized_at,
           ra.transaction_hash,
           ra.transaction_chain_id,
-          ic.hash AS tx_hash,
+          ic.tx_hash AS tx_hash,
           ic.chain,
           ic.recovery_status
         FROM recovery_authorizations ra
