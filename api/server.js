@@ -1,8 +1,13 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { pool } from "../database/connection.js";
 import { rpcCall } from "../indexer/rpcClient.js";
+import {
+  buildOwnerAuthorizationMessage,
+  verifyOwnerAuthorization
+} from "../recovery/ownerAuthorization.js";
 
 const port = Number(process.env.PORT || 3000);
 let marketPriceCache = { expiresAt: 0, data: null };
@@ -35,6 +40,23 @@ const schemaReady = pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_recovery_events_status ON recovery_events(status);
   CREATE INDEX IF NOT EXISTS idx_recovery_events_chain ON recovery_events(chain);
+  CREATE TABLE IF NOT EXISTS recovery_authorizations (
+    id BIGSERIAL PRIMARY KEY,
+    case_id BIGINT REFERENCES investigation_cases(id) ON DELETE CASCADE,
+    owner_address TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    nonce TEXT NOT NULL UNIQUE,
+    message TEXT NOT NULL,
+    signature TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    authorized_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS idx_recovery_authorizations_case
+    ON recovery_authorizations(case_id);
+  CREATE INDEX IF NOT EXISTS idx_recovery_authorizations_status
+    ON recovery_authorizations(status);
   CREATE TABLE IF NOT EXISTS scan_progress (
     chain TEXT PRIMARY KEY,
     next_block BIGINT NOT NULL DEFAULT 0,
@@ -133,6 +155,36 @@ function startScanner() {
   });
 }
 
+async function readJsonBody(req) {
+  return await new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", chunk => {
+      body += chunk;
+      if (body.length > 1024 * 1024) {
+        reject(new Error("request_body_too_large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!body.trim()) return resolve({});
+      try {
+        resolve(JSON.parse(body));
+      } catch {
+        reject(new Error("invalid_json"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function isEthAddress(value) {
+  return /^0x[a-fA-F0-9]{40}$/.test(String(value || ""));
+}
+
+function authorizationDestination() {
+  return process.env.AUTHORIZED_DESTINATION_ADDRESS || null;
+}
+
 async function handle(req, res) {
   const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   const pathname = requestUrl.pathname;
@@ -146,6 +198,19 @@ async function handle(req, res) {
       res.statusCode = 500;
       res.setHeader("content-type", "text/plain; charset=utf-8");
       res.end("dashboard_unavailable");
+    }
+    return;
+  }
+
+  if (pathname.startsWith("/recovery/authorize/")) {
+    try {
+      const html = await readFile(new URL("./authorization.html", import.meta.url), "utf8");
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.end(html);
+    } catch {
+      res.statusCode = 500;
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.end("authorization_page_unavailable");
     }
     return;
   }
@@ -373,6 +438,258 @@ async function handle(req, res) {
       } else {
         res.end(JSON.stringify({ ok: true, transaction: result.rows[0] }));
       }
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ ok: false, error: "database_unavailable" }));
+    }
+    return;
+  }
+
+  if (pathname === "/api/recovery/authorization/create" && req.method === "POST") {
+    try {
+      const body = await readJsonBody(req);
+      const caseId = Number(body.caseId);
+      if (!Number.isInteger(caseId) || caseId <= 0) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok: false, error: "invalid_case_id" }));
+        return;
+      }
+
+      const destination = body.destination || authorizationDestination();
+      if (!isEthAddress(destination)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok: false, error: "invalid_authorized_destination" }));
+        return;
+      }
+
+      const caseResult = await queryDatabase(`
+        SELECT id, chain, tx_hash, confidence, ownership_status, recovery_status, metadata
+        FROM investigation_cases
+        WHERE id = $1
+        LIMIT 1
+      `, [caseId]);
+
+      if (!caseResult.rows.length) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ ok: false, error: "case_not_found" }));
+        return;
+      }
+
+      const caseData = caseResult.rows[0];
+      const metadata = caseData.metadata || {};
+      const ownerAddress = metadata.owner_address || metadata.ownerAddress || null;
+
+      if (!metadata.recoveryEligible) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({
+          ok: false,
+          error: "case_not_recovery_eligible"
+        }));
+        return;
+      }
+
+      if (!isEthAddress(ownerAddress)) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({
+          ok: false,
+          error: "owner_address_not_configured_on_case"
+        }));
+        return;
+      }
+
+      const expiresAt = new Date(
+        Date.now() + Number(process.env.RECOVERY_AUTHORIZATION_TTL_MINUTES || 30) * 60 * 1000
+      );
+      const nonce = randomBytes(24).toString("hex");
+
+      const message = buildOwnerAuthorizationMessage({
+        domain: req.headers.host || "ledger-audit",
+        caseId: caseData.id,
+        chain: caseData.chain || "ethereum",
+        sourceAddress: metadata.source_address || metadata.sourceAddress || "",
+        destination,
+        amount: metadata.amount || "",
+        expiresAt: expiresAt.toISOString(),
+        nonce
+      });
+
+      const inserted = await queryDatabase(`
+        INSERT INTO recovery_authorizations
+          (case_id, owner_address, destination, nonce, message, expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, case_id, owner_address, destination, nonce, message, status, expires_at, created_at
+      `, [caseId, ownerAddress.toLowerCase(), destination.toLowerCase(), nonce, message, expiresAt]);
+
+      res.end(JSON.stringify({
+        ok: true,
+        authorization: inserted.rows[0],
+        authorizationUrl: `/recovery/authorize/${inserted.rows[0].id}`
+      }));
+    } catch (error) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ ok: false, error: error.message || "authorization_create_failed" }));
+    }
+    return;
+  }
+
+  if (pathname.startsWith("/api/recovery/authorization/") && req.method === "GET") {
+    try {
+      const id = Number(pathname.slice("/api/recovery/authorization/".length));
+      if (!Number.isInteger(id) || id <= 0) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok: false, error: "invalid_authorization_id" }));
+        return;
+      }
+
+      const result = await queryDatabase(`
+        SELECT id, case_id, owner_address, destination, nonce, message, status, expires_at, created_at, authorized_at
+        FROM recovery_authorizations
+        WHERE id = $1
+        LIMIT 1
+      `, [id]);
+
+      if (!result.rows.length) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ ok: false, error: "authorization_not_found" }));
+        return;
+      }
+
+      res.end(JSON.stringify({ ok: true, authorization: result.rows[0] }));
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ ok: false, error: "database_unavailable" }));
+    }
+    return;
+  }
+
+  if (pathname === "/api/recovery/authorize" && req.method === "POST") {
+    try {
+      const body = await readJsonBody(req);
+      const authorizationId = Number(body.authorizationId);
+      const signature = String(body.signature || "");
+
+      if (!Number.isInteger(authorizationId) || authorizationId <= 0 || !signature) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok: false, error: "authorization_id_and_signature_required" }));
+        return;
+      }
+
+      const authResult = await queryDatabase(`
+        SELECT id, case_id, owner_address, destination, nonce, message, status, expires_at
+        FROM recovery_authorizations
+        WHERE id = $1
+        LIMIT 1
+      `, [authorizationId]);
+
+      if (!authResult.rows.length) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ ok: false, error: "authorization_not_found" }));
+        return;
+      }
+
+      const authorization = authResult.rows[0];
+
+      if (authorization.status !== "pending") {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ ok: false, error: "authorization_not_pending" }));
+        return;
+      }
+
+      if (new Date(authorization.expires_at).getTime() <= Date.now()) {
+        await queryDatabase(
+          `UPDATE recovery_authorizations SET status = 'expired' WHERE id = $1`,
+          [authorizationId]
+        );
+        res.statusCode = 409;
+        res.end(JSON.stringify({ ok: false, error: "authorization_expired" }));
+        return;
+      }
+
+      const verification = verifyOwnerAuthorization(
+        authorization.message,
+        signature,
+        authorization.owner_address
+      );
+
+      if (!verification.valid) {
+        res.statusCode = 401;
+        res.end(JSON.stringify({
+          ok: false,
+          error: "owner_signature_invalid",
+          recoveredAddress: verification.recoveredAddress
+        }));
+        return;
+      }
+
+      await queryDatabase("BEGIN");
+      try {
+        await queryDatabase(`
+          UPDATE recovery_authorizations
+          SET signature = $2,
+              status = 'authorized',
+              authorized_at = NOW()
+          WHERE id = $1
+        `, [authorizationId, signature]);
+
+        await queryDatabase(`
+          UPDATE investigation_cases
+          SET ownership_status = 'verified',
+              recovery_status = 'authorized_pending_execution',
+              metadata = COALESCE(metadata, '{}'::jsonb) ||
+                jsonb_build_object(
+                  'ownerAuthorizationId', $2,
+                  'ownerAuthorizationStatus', 'authorized',
+                  'ownerAuthorizationAddress', $3,
+                  'ownerAuthorizationDestination', $4,
+                  'ownerAuthorizationVerifiedAt', NOW()
+                ),
+              updated_at = NOW()
+          WHERE id = $1
+        `, [
+          authorization.case_id,
+          authorizationId,
+          verification.recoveredAddress.toLowerCase(),
+          authorization.destination.toLowerCase()
+        ]);
+
+        await queryDatabase(`
+          UPDATE recovery_events
+          SET status = 'authorized_pending_execution',
+              reason = 'owner_authorization_verified',
+              updated_at = NOW()
+          WHERE case_id = $1
+            AND status IN ('blocked', 'pending', 'authorized_pending_execution')
+        `, [authorization.case_id]);
+
+        await queryDatabase("COMMIT");
+      } catch (error) {
+        await queryDatabase("ROLLBACK");
+        throw error;
+      }
+
+      res.end(JSON.stringify({
+        ok: true,
+        authorizationId,
+        status: "authorized",
+        recoveredAddress: verification.recoveredAddress,
+        execution: "disabled_until_external_signer_submission"
+      }));
+    } catch (error) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ ok: false, error: error.message || "authorization_failed" }));
+    }
+    return;
+  }
+
+  if (pathname === "/api/recovery/authorizations" && req.method === "GET") {
+    try {
+      const result = await queryDatabase(`
+        SELECT id, case_id, owner_address, destination, nonce, status, expires_at, created_at, authorized_at
+        FROM recovery_authorizations
+        ORDER BY id DESC
+        LIMIT 100
+      `);
+      res.end(JSON.stringify({ ok: true, authorizations: result.rows }));
     } catch {
       res.statusCode = 503;
       res.end(JSON.stringify({ ok: false, error: "database_unavailable" }));
