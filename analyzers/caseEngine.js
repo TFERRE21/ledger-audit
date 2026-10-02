@@ -67,6 +67,8 @@ export function investigateTransaction(tx) {
   const metadata = {
     asset: tokenTransfers.length ? "ERC-20" : "ETH",
     tokenTransfers,
+    ownerCandidateAddress: tx.from ?? null,
+    amountWei: tx.value ?? null,
     recoveryDestination: recoveryEligible ? (tx.authorizedDestination ?? null) : null,
     recoveryPlan: recoveryEligible
       ? "Route only the legitimately recoverable asset to the configured authorized destination after explicit verification."
