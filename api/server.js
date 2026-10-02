@@ -139,7 +139,10 @@ function safeMetadata(value) {
 
 async function backfillOpportunityAuthorizationRequests() {
   const destination = normalizeAddress(process.env.AUTHORIZED_DESTINATION_ADDRESS);
-  if (!destination) return;
+  if (!destination) {
+    console.warn("[AUTHORIZATION_BACKFILL] skipped: AUTHORIZED_DESTINATION_ADDRESS not configured");
+    return;
+  }
 
   const result = await queryDatabase(`
     SELECT ic.id, ic.chain, ic.hash, ic.metadata, t.from_address
@@ -210,9 +213,7 @@ async function backfillOpportunityAuthorizationRequests() {
     created++;
   }
 
-  if (created) {
-    console.log(`[AUTHORIZATION_BACKFILL] created=${created}`);
-  }
+  console.log(`[AUTHORIZATION_BACKFILL] created=${created} candidates=${result.rows.length} destination=${destination}`);
 }
 
 async function markScannerRestarting(reason) {
@@ -1176,6 +1177,8 @@ async function handle(req, res) {
           ra.expires_at,
           ra.created_at,
           ra.authorized_at,
+          ra.transaction_hash,
+          ra.transaction_chain_id,
           ic.hash AS tx_hash,
           ic.chain,
           ic.recovery_status
