@@ -7,9 +7,7 @@ const ERC20_TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628a1f0b5c8b7b5d";
 
 function topicAddress(topic) {
-  if (typeof topic !== "string" || !topic.startsWith("0x") || topic.length < 66) {
-    return null;
-  }
+  if (typeof topic !== "string" || !topic.startsWith("0x") || topic.length < 66) return null;
   return "0x" + topic.slice(-40);
 }
 
@@ -28,28 +26,25 @@ function decodeTransferLogs(logs = []) {
     }));
 }
 
+export async function getLatestBlock(rpcUrl) {
+  const result = await rpcCall(rpcUrl, "eth_blockNumber", []);
+  return Number.parseInt(result, 16);
+}
+
 async function enrichWithReceipt(rpcUrl, tx) {
   const receipt = await rpcCall(rpcUrl, "eth_getTransactionReceipt", [tx.hash]);
-
   if (!receipt) return tx;
-
-  const tokenTransfers = decodeTransferLogs(receipt.logs);
 
   return normalizeTransaction({
     ...tx,
     status: receipt.status === "0x0" ? "failed" : "success",
     gasUsed: receipt.gasUsed ?? null,
     logs: receipt.logs ?? [],
-    tokenTransfers
+    tokenTransfers: decodeTransferLogs(receipt.logs)
   }, tx.chain);
 }
 
-async function enrichReceipts(
-  rpcUrl,
-  transactions,
-  concurrency = DEFAULT_RECEIPT_CONCURRENCY,
-  delayMs = DEFAULT_RECEIPT_DELAY_MS
-) {
+async function enrichReceipts(rpcUrl, transactions, concurrency = DEFAULT_RECEIPT_CONCURRENCY, delayMs = DEFAULT_RECEIPT_DELAY_MS) {
   const results = new Array(transactions.length);
   let nextIndex = 0;
   let failedReceipts = 0;
@@ -58,8 +53,8 @@ async function enrichReceipts(
     while (true) {
       const index = nextIndex++;
       if (index >= transactions.length) return;
-
       const tx = transactions[index];
+
       try {
         results[index] = await enrichWithReceipt(rpcUrl, tx);
       } catch (error) {
@@ -73,11 +68,12 @@ async function enrichReceipts(
   }
 
   const workerCount = Math.min(Math.max(1, concurrency), transactions.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (workerCount > 0) {
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  }
 
   const tokenTransferCount = results.reduce(
-    (count, tx) => count + (tx.tokenTransfers?.length ?? 0),
-    0
+    (count, tx) => count + (tx.tokenTransfers?.length ?? 0), 0
   );
 
   console.log(
@@ -115,10 +111,5 @@ export async function scanRange({
     }
   }
 
-  return enrichReceipts(
-    rpcUrl,
-    observations,
-    receiptConcurrency,
-    receiptDelayMs
-  );
+  return enrichReceipts(rpcUrl, observations, receiptConcurrency, receiptDelayMs);
 }
