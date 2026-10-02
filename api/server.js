@@ -147,9 +147,9 @@ async function backfillOpportunityAuthorizationRequests() {
   }
 
   const result = await queryDatabase(`
-    SELECT ic.id, ic.chain, ic.hash, ic.metadata, t.from_address
+    SELECT ic.id, ic.chain, ic.tx_hash AS hash, ic.metadata, t.from_address
     FROM investigation_cases ic
-    LEFT JOIN transactions t ON t.tx_hash = ic.hash
+    LEFT JOIN transactions t ON t.tx_hash = ic.tx_hash
     WHERE (
       ic.findings @> '[{"type":"possible_lost_funds"}]'::jsonb
       OR ic.confidence = 'high'
