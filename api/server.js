@@ -142,16 +142,33 @@ async function backfillOpportunityAuthorizationRequests() {
   if (!destination) return;
 
   const result = await queryDatabase(`
-    SELECT id, chain, hash, metadata
-    FROM investigation_cases
-    WHERE findings @> '[{"type":"possible_lost_funds"}]'::jsonb
-      AND metadata->>'ownerCandidateAddress' IS NOT NULL
-    ORDER BY id DESC
+    SELECT ic.id, ic.chain, ic.hash, ic.metadata, t.from_address
+    FROM investigation_cases ic
+    LEFT JOIN transactions t ON t.tx_hash = ic.hash
+    WHERE ic.findings @> '[{"type":"possible_lost_funds"}]'::jsonb
+    ORDER BY ic.id DESC
     LIMIT 500
   `);
 
   let created = 0;
   for (const row of result.rows) {
+    // O from_address é apenas um candidato técnico para contato/autorização.
+    // Ele não é tratado como prova de propriedade.
+    const currentMetadata = safeMetadata(row.metadata);
+    if (!currentMetadata.ownerCandidateAddress && normalizeAddress(row.from_address)) {
+      await queryDatabase(`
+        UPDATE investigation_cases
+        SET metadata = $1::jsonb, updated_at = NOW()
+        WHERE id = $2
+      `, [JSON.stringify({
+        ...currentMetadata,
+        ownerCandidateAddress: normalizeAddress(row.from_address)
+      }), row.id]);
+      row.metadata = {
+        ...currentMetadata,
+        ownerCandidateAddress: normalizeAddress(row.from_address)
+      };
+    }
     const metadata = safeMetadata(row.metadata);
     const ownerAddress = normalizeAddress(metadata.ownerCandidateAddress);
     if (!ownerAddress) continue;
