@@ -35,7 +35,10 @@ async function scanOnce() {
     await saveTransaction(tx);
     savedTransactions++;
 
-    const caseData = investigateTransaction(tx);
+    const caseData = investigateTransaction({
+      ...tx,
+      authorizedDestination: config.authorizedDestination
+    });
     if (caseData.findings.length > 0) {
       await saveCase(caseData);
       savedCases++;
