@@ -25,8 +25,20 @@ const schemaReady = pool.query(`
   CREATE TABLE IF NOT EXISTS scan_progress (
     chain TEXT PRIMARY KEY,
     next_block BIGINT NOT NULL DEFAULT 0,
+    current_block BIGINT NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'idle',
+    batch_transactions BIGINT NOT NULL DEFAULT 0,
+    batch_cases BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+  ALTER TABLE scan_progress
+    ADD COLUMN IF NOT EXISTS current_block BIGINT NOT NULL DEFAULT 0;
+  ALTER TABLE scan_progress
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'idle';
+  ALTER TABLE scan_progress
+    ADD COLUMN IF NOT EXISTS batch_transactions BIGINT NOT NULL DEFAULT 0;
+  ALTER TABLE scan_progress
+    ADD COLUMN IF NOT EXISTS batch_cases BIGINT NOT NULL DEFAULT 0;
 `);
 
 export async function saveTransaction(tx) {
@@ -84,13 +96,14 @@ export async function saveCase(caseData) {
 export async function getScanProgress(chain, defaultBlock = 0) {
   await schemaReady;
   const result = await pool.query(
-    `SELECT next_block FROM scan_progress WHERE chain = $1 LIMIT 1`,
+    `SELECT next_block, current_block, status, batch_transactions, batch_cases, updated_at
+     FROM scan_progress WHERE chain = $1 LIMIT 1`,
     [chain]
   );
   if (!result.rows.length) {
     await pool.query(
-      `INSERT INTO scan_progress (chain, next_block) VALUES ($1,$2)
-       ON CONFLICT (chain) DO NOTHING`,
+      `INSERT INTO scan_progress (chain, next_block, current_block, status)
+       VALUES ($1,$2,$2,'idle') ON CONFLICT (chain) DO NOTHING`,
       [chain, defaultBlock]
     );
     return defaultBlock;
@@ -98,13 +111,38 @@ export async function getScanProgress(chain, defaultBlock = 0) {
   return Number(result.rows[0].next_block);
 }
 
-export async function setScanProgress(chain, nextBlock) {
+export async function setScanProgress(chain, nextBlock, details = {}) {
   await schemaReady;
   await pool.query(
-    `INSERT INTO scan_progress (chain, next_block, updated_at)
-     VALUES ($1,$2,NOW())
+    `INSERT INTO scan_progress
+       (chain, next_block, current_block, status, batch_transactions, batch_cases, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,NOW())
      ON CONFLICT (chain)
-     DO UPDATE SET next_block = EXCLUDED.next_block, updated_at = NOW()`,
-    [chain, nextBlock]
+     DO UPDATE SET
+       next_block = EXCLUDED.next_block,
+       current_block = EXCLUDED.current_block,
+       status = EXCLUDED.status,
+       batch_transactions = EXCLUDED.batch_transactions,
+       batch_cases = EXCLUDED.batch_cases,
+       updated_at = NOW()`,
+    [
+      chain,
+      nextBlock,
+      Number(details.currentBlock ?? nextBlock),
+      details.status ?? 'idle',
+      Number(details.batchTransactions ?? 0),
+      Number(details.batchCases ?? 0)
+    ]
   );
+}
+
+export async function getScanStatus(chain) {
+  await schemaReady;
+  const result = await pool.query(
+    `SELECT chain, next_block, current_block, status, batch_transactions,
+            batch_cases, updated_at
+     FROM scan_progress WHERE chain = $1 LIMIT 1`,
+    [chain]
+  );
+  return result.rows[0] ?? null;
 }
