@@ -285,11 +285,15 @@ async function handle(req, res) {
   }
 
   if (pathname === "/api/recovery") {
+    const signerAddress = process.env.RECOVERY_SIGNER_ADDRESS || null;
     res.end(JSON.stringify({
       ok: true,
       mode: String(process.env.RECOVERY_MODE || "DRY_RUN").toUpperCase(),
       authorizedDestinationConfigured: Boolean(process.env.AUTHORIZED_DESTINATION_ADDRESS),
       authorizedDestination: process.env.AUTHORIZED_DESTINATION_ADDRESS || null,
+      signerConfigured: Boolean(signerAddress),
+      signerAddress,
+      signerMode: process.env.RECOVERY_SIGNER_MODE || "external",
       execution: "disabled_until_ownership_and_recovery_mechanism_are_verified"
     }));
     return;
