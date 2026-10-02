@@ -1,7 +1,7 @@
 import { getScanConfig } from "./config.js";
 import { getLatestBlock, scanRange } from "./rangeScanner.js";
 import { investigateTransaction } from "../analyzers/caseEngine.js";
-import { saveTransaction, saveCase } from "../database/repository.js";
+import { saveTransaction, saveCase, getScanProgress, setScanProgress } from "../database/repository.js";
 import { pool } from "../database/connection.js";
 
 const config = getScanConfig();
@@ -18,8 +18,20 @@ function sleep(ms) {
 async function scanOnce() {
   let fromBlock = config.fromBlock;
   let toBlock = config.toBlock;
+  let historical = false;
 
-  if (fromBlock === 0 && toBlock === 0) {
+  if (config.historicalScan && config.fromBlock === 0 && config.toBlock === 0) {
+    const latestBlock = await getLatestBlock(config.rpcUrl);
+    fromBlock = await getScanProgress(config.chain, config.historicalStartBlock);
+
+    if (fromBlock <= latestBlock) {
+      toBlock = Math.min(fromBlock + config.historicalBatchBlocks - 1, latestBlock);
+      historical = true;
+    } else {
+      fromBlock = Math.max(0, latestBlock - 4);
+      toBlock = latestBlock;
+    }
+  } else if (fromBlock === 0 && toBlock === 0) {
     toBlock = await getLatestBlock(config.rpcUrl);
     fromBlock = Math.max(0, toBlock - 4);
   }
@@ -39,6 +51,7 @@ async function scanOnce() {
       ...tx,
       authorizedDestination: config.authorizedDestination
     });
+
     if (caseData.findings.length > 0) {
       await saveCase(caseData);
       savedCases++;
@@ -57,15 +70,21 @@ async function scanOnce() {
     }
   }
 
+  if (config.historicalScan && historical) {
+    await setScanProgress(config.chain, toBlock + 1);
+  }
+
   console.log(JSON.stringify({
     chain: config.chain,
+    mode: historical ? "historical" : "live",
     blocks: { from: fromBlock, to: toBlock },
     transactions: transactions.length,
     savedTransactions,
     savedCases,
     recoveryCandidates,
     recoveryMode: config.recoveryMode,
-    authorizedDestinationConfigured: Boolean(config.authorizedDestination)
+    authorizedDestinationConfigured: Boolean(config.authorizedDestination),
+    nextHistoricalBlock: historical ? toBlock + 1 : null
   }, null, 2));
 
   return toBlock;
