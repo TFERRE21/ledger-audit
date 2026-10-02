@@ -5,6 +5,7 @@ import { pool } from "../database/connection.js";
 import { rpcCall } from "../indexer/rpcClient.js";
 
 const port = Number(process.env.PORT || 3000);
+let marketPriceCache = { expiresAt: 0, data: null };
 const scannerRestartDelayMs = Math.max(3000, Number(process.env.SCANNER_RESTART_DELAY_MS || 5000));
 let scannerProcess = null;
 let scannerRestartTimer = null;
@@ -309,6 +310,34 @@ async function handle(req, res) {
     } catch {
       res.statusCode=503;
       res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
+    return;
+  }
+
+  if (pathname === "/api/prices") {
+    try {
+      const now = Date.now();
+      if (marketPriceCache.data && marketPriceCache.expiresAt > now) {
+        res.end(JSON.stringify({ ok: true, ...marketPriceCache.data, cached: true }));
+        return;
+      }
+      const response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd,brl");
+      if (!response.ok) throw new Error(`market_http_${response.status}`);
+      const price = await response.json();
+      const ethUsd = Number(price?.ethereum?.usd || 0);
+      const ethBrl = Number(price?.ethereum?.brl || 0);
+      if (!(ethUsd > 0) || !(ethBrl > 0)) throw new Error("market_price_unavailable");
+      const data = {
+        source: "CoinGecko",
+        fetchedAt: new Date().toISOString(),
+        ethUsd,
+        ethBrl
+      };
+      marketPriceCache = { expiresAt: now + 60000, data };
+      res.end(JSON.stringify({ ok: true, ...data, cached: false }));
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ ok: false, error: "market_price_unavailable" }));
     }
     return;
   }
