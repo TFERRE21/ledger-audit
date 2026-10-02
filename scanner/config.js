@@ -13,6 +13,7 @@ export function getScanConfig(env = process.env) {
     historicalBatchBlocks: Math.max(1, Number(env.HISTORICAL_BATCH_BLOCKS || 1000)),
     blockConcurrency: Math.min(6, Math.max(1, Number(env.BLOCK_CONCURRENCY || 4))),
     blockDelayMs: Math.max(0, Number(env.BLOCK_DELAY_MS || 25)),
-    progressEveryBlocks: Math.max(5, Number(env.PROGRESS_EVERY_BLOCKS || 25))
+    progressEveryBlocks: Math.max(5, Number(env.PROGRESS_EVERY_BLOCKS || 25)),
+    contractScanLimit: Math.max(1, Number(env.CONTRACT_SCAN_LIMIT || 50))
   };
 }
