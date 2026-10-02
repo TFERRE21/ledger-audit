@@ -135,6 +135,7 @@ async function load(){
     const caseOpps=opj.opportunities||[], contractOpps=opj.contractOpportunities||[];
     registry.cases.clear(); registry.contracts.clear();
     caseOpps.forEach(x=>registry.cases.set(Number(x.id),x));
+    (ctj.contracts||[]).forEach(x=>registry.contracts.set(Number(x.id),x));
     contractOpps.forEach(x=>registry.contracts.set(Number(x.id),x));
     const po=Number(opj.count||caseOpps.length+contractOpps.length), ao=Number(opps.authorized_opportunities||0);
     $("oppTabCount").textContent=fmt(po); $("potentialOpps").textContent=fmt(po);
