@@ -122,7 +122,7 @@ function downloadMonetizationReport(){
       (x.findings||[]).map(v=>typeof v==="string"?v:(v.type||JSON.stringify(v))).join(" | "),
       (x.evidence||[]).join(" | ")]);
   }
-  const csv=rows.map(r=>r.map(v=>"\\""+String(v??"").replace(/"/g,'""')+"\\"").join(",")).join("\\n");
+  const csv=rows.map(r=>r.map(v=>"\""+String(v??"").replace(/"/g,'""')+"\"").join(",")).join("\\n");
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
   a.download="ledger-audit-monetizacao-"+new Date().toISOString().slice(0,10)+".csv"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
