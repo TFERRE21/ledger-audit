@@ -590,10 +590,24 @@ async function handle(req, res) {
       const authorizationId = Number(authorizationMatch[1]);
 
       const result = await queryDatabase(`
-        SELECT id, case_id, owner_address, destination, nonce, message,
-               status, expires_at, created_at, authorized_at
-        FROM recovery_authorizations
-        WHERE id = $1
+        SELECT
+          ra.id,
+          ra.case_id,
+          ra.owner_address,
+          ra.destination,
+          ra.nonce,
+          ra.message,
+          ra.status,
+          ra.expires_at,
+          ra.created_at,
+          ra.authorized_at,
+          ic.chain,
+          ic.hash AS tx_hash,
+          ic.metadata
+        FROM recovery_authorizations ra
+        LEFT JOIN investigation_cases ic
+          ON ic.id = ra.case_id
+        WHERE ra.id = $1
         LIMIT 1
       `, [authorizationId]);
 
