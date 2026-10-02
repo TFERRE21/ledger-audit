@@ -1,31 +1,27 @@
 import { spawn } from "node:child_process";
 
-const children = [
-  spawn(process.execPath, ["api/server.js"], { stdio: "inherit", env: process.env }),
-  spawn(process.execPath, ["scanner/runScan.js"], { stdio: "inherit", env: process.env })
-];
+const api = spawn(process.execPath, ["api/server.js"], {
+  stdio: "inherit",
+  env: process.env
+});
 
 let shuttingDown = false;
 
 function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  for (const child of children) {
-    if (!child.killed) child.kill(signal);
-  }
+  if (!api.killed) api.kill(signal);
 }
 
-for (const child of children) {
-  child.on("exit", (code, signal) => {
-    if (shuttingDown) return;
-    if (code !== 0) {
-      console.error(`[START] child exited code=${code} signal=${signal || "none"}`);
-    }
-  });
-  child.on("error", error => {
-    console.error("[START] child error:", error.message);
-  });
-}
+api.on("error", error => {
+  console.error("[START] API error:", error.message);
+});
+
+api.on("exit", (code, signal) => {
+  if (shuttingDown) return;
+  console.error("[START] API exited code=" + (code ?? "null") + " signal=" + (signal ?? "none"));
+  process.exit(code || 1);
+});
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
