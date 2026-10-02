@@ -5,6 +5,23 @@ const schemaReady = pool.query(`
     ADD COLUMN IF NOT EXISTS token_transfers JSONB NOT NULL DEFAULT '[]'::jsonb;
   ALTER TABLE investigation_cases
     ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+  CREATE TABLE IF NOT EXISTS recovery_events (
+    id BIGSERIAL PRIMARY KEY,
+    chain TEXT NOT NULL,
+    case_id BIGINT REFERENCES investigation_cases(id) ON DELETE SET NULL,
+    tx_hash TEXT,
+    asset TEXT,
+    amount TEXT,
+    gas_amount TEXT,
+    net_amount TEXT,
+    destination TEXT,
+    status TEXT NOT NULL DEFAULT 'blocked',
+    reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_recovery_events_status ON recovery_events(status);
+  CREATE INDEX IF NOT EXISTS idx_recovery_events_chain ON recovery_events(chain);
 `);
 
 export async function saveTransaction(tx) {
