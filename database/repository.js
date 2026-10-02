@@ -79,6 +79,7 @@ const schemaReady = pool.query(`
     UNIQUE(chain,address)
   );
   CREATE INDEX IF NOT EXISTS idx_contract_findings_potential ON contract_findings(potential);
+  ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS token_balances JSONB NOT NULL DEFAULT '[]'::jsonb;
 `);
 
 export async function saveTransaction(tx) {
