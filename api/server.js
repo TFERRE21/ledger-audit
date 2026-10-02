@@ -148,7 +148,14 @@ async function backfillOpportunityAuthorizationRequests() {
     SELECT ic.id, ic.chain, ic.hash, ic.metadata, t.from_address
     FROM investigation_cases ic
     LEFT JOIN transactions t ON t.tx_hash = ic.hash
-    WHERE ic.findings @> '[{"type":"possible_lost_funds"}]'::jsonb
+    WHERE (
+      ic.findings @> '[{"type":"possible_lost_funds"}]'::jsonb
+      OR ic.confidence = 'high'
+    )
+      AND (
+        normalizeAddress(ic.metadata->>'ownerCandidateAddress') IS NOT NULL
+        OR normalizeAddress(t.from_address) IS NOT NULL
+      )
     ORDER BY ic.id DESC
     LIMIT 500
   `);
