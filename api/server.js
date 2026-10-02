@@ -64,13 +64,19 @@ const schemaReady = pool.query(`
   CREATE TABLE IF NOT EXISTS contract_findings (
     id BIGSERIAL PRIMARY KEY, chain TEXT NOT NULL, address TEXT NOT NULL, block_number BIGINT,
     eth_balance_wei TEXT NOT NULL DEFAULT '0', code_size_bytes INTEGER NOT NULL DEFAULT 0,
-    owner_address TEXT, admin_address TEXT, signals JSONB NOT NULL DEFAULT '[]'::jsonb,
+    owner_address TEXT, admin_address TEXT,
+    implementation_address TEXT, beacon_address TEXT,
+    triage_status TEXT NOT NULL DEFAULT 'CODE_DETECTED',
+    signals JSONB NOT NULL DEFAULT '[]'::jsonb,
     method_signals JSONB NOT NULL DEFAULT '[]'::jsonb, evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
     potential BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(chain,address)
   );
   CREATE INDEX IF NOT EXISTS idx_contract_findings_potential ON contract_findings(potential);
   ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS token_balances JSONB NOT NULL DEFAULT '[]'::jsonb;
+  ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS implementation_address TEXT;
+  ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS beacon_address TEXT;
+  ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS triage_status TEXT NOT NULL DEFAULT 'CODE_DETECTED';
 `);
 
 async function queryDatabase(sql, params = []) {
@@ -244,6 +250,7 @@ async function handle(req, res) {
           c.metadata, c.created_at, c.updated_at,
           t.to_address, t.from_address,
           cf.address AS contract_address, cf.owner_address, cf.admin_address,
+          cf.implementation_address, cf.beacon_address, cf.triage_status,
           cf.eth_balance_wei, cf.signals AS contract_signals,
           cf.potential AS contract_potential
         FROM investigation_cases c
@@ -261,14 +268,15 @@ async function handle(req, res) {
         const ownership = String(x.ownership_status || "unknown").toLowerCase();
         const hasContract = Boolean(x.contract_address);
         const contractEvidence = Array.isArray(x.contract_signals) ? x.contract_signals.length > 0 : false;
+        const proxyConfirmed = Boolean(x.implementation_address || x.beacon_address || x.triage_status === "PROXY_CONFIRMED");
         let action = "VERIFY_OWNERSHIP";
         let readiness = "NOT_READY";
-        if (hasContract && contractEvidence && ownership === "verified") {
+        if (hasContract && contractEvidence && proxyConfirmed && ownership === "verified") {
           action = "RESPONSIBLE_DISCLOSURE_REVIEW";
           readiness = "REVIEW_READY";
         } else if (hasContract && contractEvidence) {
-          action = "IDENTIFY_PROJECT_AND_BOUNTY_SCOPE";
-          readiness = "RESEARCH_READY";
+          action = proxyConfirmed ? "IDENTIFY_PROJECT_AND_BOUNTY_SCOPE" : "VERIFY_CONTRACT_CLASSIFICATION";
+          readiness = proxyConfirmed ? "RESEARCH_READY" : "NOT_READY";
         }
         return {
           ...x,
@@ -305,7 +313,8 @@ async function handle(req, res) {
       `);
       const contracts = await queryDatabase(`
         SELECT id, chain, address, block_number, eth_balance_wei, code_size_bytes,
-               owner_address, admin_address, signals, method_signals, evidence, token_balances,
+               owner_address, admin_address, implementation_address, beacon_address, triage_status,
+               signals, method_signals, evidence, token_balances,
                potential, created_at, updated_at
         FROM contract_findings
         WHERE potential = TRUE
