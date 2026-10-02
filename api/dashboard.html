@@ -9,7 +9,7 @@
 <div class="grid">
 <div class="card"><div class="label">TRANSAÇÕES</div><div id="transactions" class="value">—</div></div><div class="card"><div class="label">CASOS</div><div id="cases" class="value">—</div></div><div class="card"><div class="label">ALTA CONFIANÇA</div><div id="high" class="value">—</div></div><div class="card"><div class="label">CANDIDATOS AUTORIZADOS</div><div id="authorized" class="value">—</div></div>
 </div>
-<div class="section"><div id="opportunityCard" class="card"><h2>Atividade do scanner <span id="opportunityStatus" class="status">MONITORANDO</span></h2><div class="grid6">
+<div class="grid section"><div class="card opportunity"><div class="label">SALDO ETH DETECTADO EM CONTRATOS</div><div class="value" id="balanceEth">0.000000000000000000 ETH</div><div class="muted" id="balanceMeta">0 contratos com saldo</div></div><div class="card"><div class="label">WEI DETECTADO</div><div class="value mono" id="balanceWei">0</div><div class="muted">somente saldos encontrados pelo scanner</div></div></div><div class="section"><div id="opportunityCard" class="card"><h2>Atividade do scanner <span id="opportunityStatus" class="status">MONITORANDO</span></h2><div class="grid6">
 <div><div class="label">STATUS</div><div id="scanStatus" class="value">—</div></div>
 <div><div class="label">BLOCO ATUAL</div><div id="scanBlock" class="value">—</div></div>
 <div><div class="label">PRÓXIMO BLOCO</div><div id="scanNext" class="value">—</div></div>
@@ -98,13 +98,13 @@ function openOpportunity(type,id){
 
 async function load(){
   try{
-    const urls=["/api/stats","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events","/api/scanner/status","/api/scanner/logs","/api/opportunities","/api/contracts","/api/recovery"];
+    const urls=["/api/stats","/api/balances","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events","/api/scanner/status","/api/scanner/logs","/api/opportunities","/api/contracts","/api/recovery"];
     const responses=await Promise.all(urls.map(u=>fetch(u)));
-    const [sj,cj,tj,hj,rj,ej,scj,lgj,opj,ctj,rr]=await Promise.all(responses.map(r=>r.json()));
-    const st=sj.stats||{}, cs=rj.cases||{}, rc=rj.recoveries||{};
+    const [sj,bj,cj,tj,hj,rj,ej,scj,lgj,opj,ctj,rr]=await Promise.all(responses.map(r=>r.json()));
+    const st=sj.stats||{}, bal=bj||{}, cs=rj.cases||{}, rc=rj.recoveries||{};
     const scanner=(scj.scanners||[])[0]||{}, activity=scj.activity||{}, network=scj.network||{}, opps=scj.opportunities||{};
     const scannerProcess=scj.process||"stopped";
-    $("transactions").textContent=fmt(st.transactions);
+    $("balanceEth").textContent=esc((bal.contractBalanceEth||"0.000000000000000000"))+" ETH"; $("balanceWei").textContent=esc(bal.contractBalanceWei||"0"); $("balanceMeta").textContent=fmt(bal.fundedContracts||0)+" contrato(s) com saldo detectado";\n    $("transactions").textContent=fmt(st.transactions);
     $("cases").textContent=fmt(st.cases);
     $("high").textContent=fmt(st.high_confidence_cases);
     $("authorized").textContent=fmt(st.recovery_candidates);
