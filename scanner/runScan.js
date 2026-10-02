@@ -55,7 +55,7 @@ async function scanOnce() {
     fromBlock,
     toBlock,
     onProgress: async progress => {
-      await setScanProgress(config.chain, progress.currentBlock, {
+      await setScanProgress(config.chain, progress.currentBlock + 1, {
         currentBlock: progress.currentBlock,
         status: historical ? "scanning_historical" : "scanning_live",
         batchTransactions: progress.transactions,
