@@ -128,9 +128,9 @@ function downloadMonetizationReport(){
 }
 async function load(){
   try{
-    const urls=["/api/stats","/api/balances","/api/prices","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events","/api/scanner/status","/api/scanner/logs","/api/opportunities","/api/contracts","/api/recovery"];
+    const urls=["/api/stats","/api/balances","/api/prices","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events","/api/scanner/status","/api/scanner/logs","/api/opportunities","/api/contracts","/api/recovery","/api/reward-opportunities"];
     const responses=await Promise.all(urls.map(u=>fetch(u)));
-    const [sj,bj,pj,cj,tj,hj,rj,ej,scj,lgj,opj,ctj,rr]=await Promise.all(responses.map(r=>r.json()));
+    const [sj,bj,pj,cj,tj,hj,rj,ej,scj,lgj,opj,ctj,rr,mqj]=await Promise.all(responses.map(r=>r.json()));
     const st=sj.stats||{}, bal=bj||{}, price=pj||{}, cs=rj.cases||{}, rc=rj.recoveries||{};
     const scanner=(scj.scanners||[])[0]||{}, activity=scj.activity||{}, network=scj.network||{}, opps=scj.opportunities||{};
     const scannerProcess=scj.process||"stopped";
@@ -178,21 +178,21 @@ async function load(){
     const po=Number(opj.count||caseOpps.length+contractOpps.length), ao=Number(opps.authorized_opportunities||0);
     $("oppTabCount").textContent=fmt(po); $("potentialOpps").textContent=fmt(po);
 
-    const mqCases=caseOpps.slice(0,100);
+    const mqCases=(mqj.opportunities||caseOpps).slice(0,100);
     const mqHigh=mqCases.filter(x=>String(x.confidence).toLowerCase()==="high").length;
     const mqControl=mqCases.filter(x=>["verified","owner_verified"].includes(String(x.ownership_status).toLowerCase())).length;
     const mqValidate=mqCases.filter(x=>String(x.ownership_status).toLowerCase()==="unknown").length;
-    const mqDisclosure=mqCases.filter(x=>String(x.confidence).toLowerCase()==="high" && String(x.recovery_status).toLowerCase()!=="not_authorized").length;
+    const mqDisclosure=mqCases.filter(x=>String(x.reward_readiness)==="REVIEW_READY").length;
     $("mqHigh").textContent=fmt(mqHigh);
     $("mqControl").textContent=fmt(mqControl);
     $("mqValidate").textContent=fmt(mqValidate);
     $("mqDisclosure").textContent=fmt(mqDisclosure);
     $("mqStatus").textContent=po>0?"FILA ATIVA":"AGUARDANDO";
-    $("mqBounty").textContent="VERIFICAR";
+    $("mqBounty").textContent=Number(mqj.research_ready||0)>0?"PESQUISAR":"VERIFICAR";
     $("monetizationRows").innerHTML=mqCases.slice(0,20).map(x=>{
       const finding=(x.findings||[]).map(v=>typeof v==="string"?v:(v.type||JSON.stringify(v))).join(", ");
       const ownership=String(x.ownership_status||"unknown").toLowerCase();
-      const action=ownership==="verified"||ownership==="owner_verified" ? "Validar autorização e disclosure" : "Identificar autoridade/proprietário";
+      const action=x.next_action==="IDENTIFY_PROJECT_AND_BOUNTY_SCOPE" ? "Identificar projeto e escopo de bounty" : x.next_action==="RESPONSIBLE_DISCLOSURE_REVIEW" ? "Revisar disclosure responsável" : "Identificar autoridade/proprietário";
       return '<tr><td>'+esc(x.block_number)+'</td><td class="mono">'+esc(short(x.tx_hash,16))+'</td><td>'+esc(x.confidence)+'</td><td>'+esc(x.ownership_status)+'</td><td>'+esc(x.recovery_status)+'</td><td>'+esc(finding||"—")+'</td><td>'+esc(action)+'</td></tr>';
     }).join("")||'<tr><td colspan="7" class="muted">Nenhum caso na fila.</td></tr>';
     $("opportunityStatus").textContent=ao>0?"OPORTUNIDADE AUTORIZADA":po>0?"OPORTUNIDADE DETECTADA":(scannerProcess==="restarting"?"SCANNER REINICIANDO":"SEM OPORTUNIDADE");
