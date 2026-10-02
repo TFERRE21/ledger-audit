@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>Autorização de Recuperação</title>
+
+<style>
+body{
+  margin:0;
+  padding:30px;
+  background:#0b1020;
+  color:#eef2ff;
+  font-family:Arial,sans-serif;
+}
+
+.box{
+  max-width:650px;
+  margin:auto;
+  background:#11182b;
+  border:1px solid #273452;
+  border-radius:16px;
+  padding:25px;
+}
+
+h1{
+  margin-top:0;
+}
+
+.row{
+  display:grid;
+  grid-template-columns:160px 1fr;
+  gap:10px;
+  padding:10px 0;
+  border-bottom:1px solid #202943;
+}
+
+.label{
+  color:#93a0bd;
+}
+
+.address{
+  font-family:monospace;
+  word-break:break-all;
+}
+
+button{
+  width:100%;
+  padding:15px;
+  margin-top:20px;
+  border:0;
+  border-radius:10px;
+  background:#2e8b57;
+  color:white;
+  font-size:16px;
+  font-weight:bold;
+  cursor:pointer;
+}
+
+button:disabled{
+  opacity:.5;
+  cursor:not-allowed;
+}
+
+.status{
+  margin-top:18px;
+  padding:14px;
+  border-radius:10px;
+  background:#202943;
+}
+
+.warning{
+  color:#ffd98a;
+  font-size:13px;
+  margin-top:15px;
+}
+
+.success{
+  color:#75e0a0;
+}
+
+.error{
+  color:#ffaaa0;
+}
+</style>
+</head>
+
+<body>
+
+<div class="box">
+
+<h1>🔐 Autorização de Recuperação</h1>
+
+<p>
+Você recebeu uma solicitação de autorização para um caso específico.
+Confira todos os dados antes de assinar.
+</p>
+
+<div id="data">
+Carregando...
+</div>
+
+<button id="authorize" disabled>
+AUTORIZAR RECUPERAÇÃO
+</button>
+
+<div id="status" class="status">
+Aguardando...
+</div>
+
+<div class="warning">
+Nunca informe sua frase-semente ou chave privada.
+A autorização utiliza somente a assinatura da sua carteira.
+</div>
+
+</div>
+
+<script>
+
+const authorizationId =
+  location.pathname.split("/").filter(Boolean).pop();
+
+const $ = id => document.getElementById(id);
+
+function esc(value){
+  return String(value ?? "—")
+    .replace(/[&<>"']/g, c => ({
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;",
+      "\"":"&quot;",
+      "'":"&#39;"
+    }[c]));
+}
+
+let authorization = null;
+
+async function load(){
+
+  try{
+
+    const response =
+      await fetch(
+        "/api/recovery/authorization/" +
+        encodeURIComponent(authorizationId)
+      );
+
+    const data = await response.json();
+
+    if(!data.ok)
+      throw new Error(data.error);
+
+    authorization = data.authorization;
+
+    $("data").innerHTML = `
+      <div class="row">
+        <div class="label">Caso</div>
+        <div>${esc(authorization.case_id)}</div>
+      </div>
+
+      <div class="row">
+        <div class="label">Rede</div>
+        <div>${esc(authorization.chain)}</div>
+      </div>
+
+      <div class="row">
+        <div class="label">Origem</div>
+        <div class="address">${esc(authorization.owner_address)}</div>
+      </div>
+
+      <div class="row">
+        <div class="label">Destino</div>
+        <div class="address">${esc(authorization.destination)}</div>
+      </div>
+
+      <div class="row">
+        <div class="label">Valor</div>
+        <div>${esc(authorization.amount || "a confirmar")}</div>
+      </div>
+
+      <div class="row">
+        <div class="label">Expira</div>
+        <div>${new Date(
+          authorization.expires_at
+        ).toLocaleString("pt-BR")}</div>
+      </div>
+    `;
+
+    $("authorize").disabled = false;
+
+    $("status").textContent =
+      "Confira os dados e autorize somente se forem corretos.";
+
+  }catch(error){
+
+    $("status").className = "status error";
+    $("status").textContent =
+      "Erro: " + error.message;
+
+  }
+}
+
+async function authorize(){
+
+  if(!window.ethereum){
+
+    $("status").className = "status error";
+    $("status").textContent =
+      "Carteira Ethereum não encontrada neste navegador.";
+
+    return;
+  }
+
+  try{
+
+    $("authorize").disabled = true;
+
+    $("status").textContent =
+      "Conectando à carteira...";
+
+    const accounts =
+      await window.ethereum.request({
+        method:"eth_requestAccounts"
+      });
+
+    const account =
+      accounts[0]?.toLowerCase();
+
+    if(
+      !account ||
+      account !==
+      authorization.owner_address.toLowerCase()
+    ){
+
+      throw new Error(
+        "A carteira conectada não corresponde ao proprietário autorizado."
+      );
+    }
+
+    $("status").textContent =
+      "Confirme a assinatura na sua carteira...";
+
+    const signature =
+      await window.ethereum.request({
+        method:"personal_sign",
+        params:[
+          authorization.message,
+          account
+        ]
+      });
+
+    const response =
+      await fetch(
+        "/api/recovery/authorize",
+        {
+          method:"POST",
+          headers:{
+            "content-type":"application/json"
+          },
+          body:JSON.stringify({
+            authorizationId:
+              authorization.id,
+            signature
+          })
+        }
+      );
+
+    const result =
+      await response.json();
+
+    if(!result.ok)
+      throw new Error(result.error);
+
+    $("status").className =
+      "status success";
+
+    $("status").innerHTML =
+      "✅ Autorização registrada com sucesso.<br>" +
+      "O caso agora será submetido às validações de recuperação.";
+
+  }catch(error){
+
+    $("status").className =
+      "status error";
+
+    $("status").textContent =
+      "Autorização não concluída: " +
+      error.message;
+
+    $("authorize").disabled = false;
+  }
+}
+
+$("authorize").addEventListener(
+  "click",
+  authorize
+);
+
+load();
+
+</script>
+
+</body>
+</html>
