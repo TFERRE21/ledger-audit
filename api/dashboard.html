@@ -21,7 +21,21 @@
 <div><div class="label">LOTE / TX</div><div id="scanBatchTx" class="value">—</div></div>
 <div><div class="label">LOTE / CASOS</div><div id="scanBatchCases" class="value">—</div></div>
 <div><div class="label">TX ÚLTIMOS 60s</div><div id="scanLiveTx" class="value">—</div></div>
-</div><p class="muted" id="scanUpdated">Aguardando atividade do scanner...</p><div class="section"><div class="grid6"><div><div class="label">ATÉ PRIMEIRA TX</div><div id="pctFirst" class="value">—</div></div><div><div class="label">ATÉ BLOCO ATUAL DA REDE</div><div id="pctNetwork" class="value">—</div></div><div><div class="label">VELOCIDADE</div><div id="scanSpeed" class="value">—</div></div><div><div class="label">ETA PRIMEIRA TX</div><div id="etaFirst" class="value">—</div></div><div><div class="label">ETA REDE ATUAL</div><div id="etaNetwork" class="value">—</div></div><div><div class="label">OPORTUNIDADES</div><div id="potentialOpps" class="value">0</div></div></div><div class="progressbar"><div id="progressFirst"></div></div><p class="tiny">Referência histórica: bloco 46.147 é o primeiro bloco com transação registrado.</p><h3>LOG AO VIVO</h3><div id="liveLog" class="logbox">Aguardando logs do scanner...</div></div></div><div class="section"><div class="card oppbox" id="opportunities"><a class="tablink" href="#opportunities">🟢 OPORTUNIDADES ENCONTRADAS <span id="oppTabCount" class="oppcount">0</span></a><h2>🟢 OPORTUNIDADES ENCONTRADAS</h2><p class="muted">Casos que o motor classificou como possível perda de fundos. A classificação não comprova propriedade nem autoriza movimentação.</p><div style="overflow:auto"><table><thead><tr><th>Bloco</th><th>Hash</th><th>Confiança</th><th>Ativo</th><th>Propriedade</th><th>Recuperação</th><th>Evidências</th></tr></thead><tbody id="opportunityRows"></tbody></table></div></div></div><div class="section"><div class="card"><h2>🔎 Varredura ampla de contratos</h2><p class="muted">Contratos vistos no histórico que possuem saldo ETH e/ou sinais públicos de controle. Isso é evidência para investigação, não autorização de movimentação.</p><div style="overflow:auto"><table><thead><tr><th>Endereço</th><th>Saldo ETH (wei)</th><th>Owner</th><th>Admin</th><th>Sinais</th><th>ERC-20</th><th>Indício</th></tr></thead><tbody id="contractRows"></tbody></table></div></div></div><div class="section"><div class="card"><h2>Valores potencialmente perdidos</h2><div class="grid6">
+</div><p class="muted" id="scanUpdated">Aguardando atividade do scanner...</p><div class="section"><div class="grid6"><div><div class="label">ATÉ PRIMEIRA TX</div><div id="pctFirst" class="value">—</div></div><div><div class="label">ATÉ BLOCO ATUAL DA REDE</div><div id="pctNetwork" class="value">—</div></div><div><div class="label">VELOCIDADE</div><div id="scanSpeed" class="value">—</div></div><div><div class="label">ETA PRIMEIRA TX</div><div id="etaFirst" class="value">—</div></div><div><div class="label">ETA REDE ATUAL</div><div id="etaNetwork" class="value">—</div></div><div><div class="label">OPORTUNIDADES</div><div id="potentialOpps" class="value">0</div></div></div><div class="progressbar"><div id="progressFirst"></div></div><p class="tiny">Referência histórica: bloco 46.147 é o primeiro bloco com transação registrado.</p><h3>LOG AO VIVO</h3><div id="liveLog" class="logbox">Aguardando logs do scanner...</div></div></div><div class="section"><div class="card oppbox" id="opportunities"><a class="tablink" href="#opportunities">🟢 OPORTUNIDADES ENCONTRADAS <span id="oppTabCount" class="oppcount">0</span></a><h2>🟢 OPORTUNIDADES ENCONTRADAS</h2><p class="muted">Casos que o motor classificou como possível perda de fundos. A classificação não comprova propriedade nem autoriza movimentação.</p><div style="overflow:auto"><table><thead><tr><th>Bloco</th><th>Hash</th><th>Confiança</th><th>Ativo</th><th>Propriedade</th><th>Recuperação</th><th>Evidências</th></tr></thead><tbody id="opportunityRows"></tbody></table></div></div></div><div class="section"><div class="card"><h2>🔎 Varredura ampla de contratos</h2><p class="muted">Contratos vistos no histórico que possuem saldo ETH e/ou sinais públicos de controle. Isso é evidência para investigação, não autorização de movimentação.</p><div style="overflow:auto"><table><thead><tr><th>Endereço</th><th>Saldo ETH (wei)</th><th>Owner</th><th>Admin</th><th>Sinais</th><th>ERC-20</th><th>Indício</th></tr></thead><tbody id="contractRows"></tbody></table></div></div></div><div class="section"><div class="card oppbox" id="monetizationQueue">
+<h2>💰 Fila de monetização legítima</h2>
+<p class="muted">Transforma achados técnicos em oportunidades de divulgação responsável, bug bounty ou recuperação autorizada. Não movimenta fundos de terceiros e não presume recompensa.</p>
+<div class="grid6">
+<div><div class="label">ALTA CONFIANÇA</div><div id="mqHigh" class="value">0</div></div>
+<div><div class="label">OWNER/ADMIN IDENTIFICADO</div><div id="mqControl" class="value">0</div></div>
+<div><div class="label">PARA VALIDAR</div><div id="mqValidate" class="value">0</div></div>
+<div><div class="label">DISCLOSURE</div><div id="mqDisclosure" class="value">0</div></div>
+<div><div class="label">BOUNTY</div><div id="mqBounty" class="value">VERIFICAR</div></div>
+<div><div class="label">STATUS</div><div id="mqStatus" class="value">ANALISANDO</div></div>
+</div>
+<div style="margin-top:14px"><button class="actionbtn" onclick="downloadMonetizationReport()">⬇ BAIXAR RELATÓRIO CSV</button></div>
+<div style="overflow:auto;margin-top:14px"><table><thead><tr><th>Bloco</th><th>Hash</th><th>Confiança</th><th>Propriedade</th><th>Recuperação</th><th>Achados</th><th>Próxima ação</th></tr></thead><tbody id="monetizationRows"></tbody></table></div>
+</div></div>
+<div class="section"><div class="card"><h2>Valores potencialmente perdidos</h2><div class="grid6">
 <div><div class="label">CASOS BLOQUEADOS</div><div id="blocked" class="value">—</div></div><div><div class="label">AUTORIZADOS</div><div id="auth" class="value">—</div></div><div><div class="label">ETH / CASOS</div><div id="ethcases" class="value">—</div></div><div><div class="label">RECUPERAÇÕES</div><div id="executions" class="value">—</div></div><div><div class="label">RECUPERADO</div><div id="recovered" class="value">—</div></div><div><div class="label">LÍQUIDO</div><div id="net" class="value">—</div></div>
 </div></div></div>
 <div class="section row">
@@ -101,6 +115,17 @@ function openOpportunity(type,id){
   }
 }
 
+function downloadMonetizationReport(){
+  const rows=[["id","block","tx_hash","confidence","ownership_status","recovery_status","findings","evidence"]];
+  for(const x of registry.cases.values()){
+    rows.push([x.id,x.block_number,x.tx_hash,x.confidence,x.ownership_status,x.recovery_status,
+      (x.findings||[]).map(v=>typeof v==="string"?v:(v.type||JSON.stringify(v))).join(" | "),
+      (x.evidence||[]).join(" | ")]);
+  }
+  const csv=rows.map(r=>r.map(v=>"\\""+String(v??"").replace(/"/g,'""')+"\\"").join(",")).join("\\n");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+  a.download="ledger-audit-monetizacao-"+new Date().toISOString().slice(0,10)+".csv"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
 async function load(){
   try{
     const urls=["/api/stats","/api/balances","/api/prices","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events","/api/scanner/status","/api/scanner/logs","/api/opportunities","/api/contracts","/api/recovery"];
@@ -152,6 +177,24 @@ async function load(){
     contractOpps.forEach(x=>registry.contracts.set(Number(x.id),x));
     const po=Number(opj.count||caseOpps.length+contractOpps.length), ao=Number(opps.authorized_opportunities||0);
     $("oppTabCount").textContent=fmt(po); $("potentialOpps").textContent=fmt(po);
+
+    const mqCases=caseOpps.slice(0,100);
+    const mqHigh=mqCases.filter(x=>String(x.confidence).toLowerCase()==="high").length;
+    const mqControl=mqCases.filter(x=>["verified","owner_verified"].includes(String(x.ownership_status).toLowerCase())).length;
+    const mqValidate=mqCases.filter(x=>String(x.ownership_status).toLowerCase()==="unknown").length;
+    const mqDisclosure=mqCases.filter(x=>String(x.confidence).toLowerCase()==="high" && String(x.recovery_status).toLowerCase()!=="not_authorized").length;
+    $("mqHigh").textContent=fmt(mqHigh);
+    $("mqControl").textContent=fmt(mqControl);
+    $("mqValidate").textContent=fmt(mqValidate);
+    $("mqDisclosure").textContent=fmt(mqDisclosure);
+    $("mqStatus").textContent=po>0?"FILA ATIVA":"AGUARDANDO";
+    $("mqBounty").textContent="VERIFICAR";
+    $("monetizationRows").innerHTML=mqCases.slice(0,20).map(x=>{
+      const finding=(x.findings||[]).map(v=>typeof v==="string"?v:(v.type||JSON.stringify(v))).join(", ");
+      const ownership=String(x.ownership_status||"unknown").toLowerCase();
+      const action=ownership==="verified"||ownership==="owner_verified" ? "Validar autorização e disclosure" : "Identificar autoridade/proprietário";
+      return '<tr><td>'+esc(x.block_number)+'</td><td class="mono">'+esc(short(x.tx_hash,16))+'</td><td>'+esc(x.confidence)+'</td><td>'+esc(x.ownership_status)+'</td><td>'+esc(x.recovery_status)+'</td><td>'+esc(finding||"—")+'</td><td>'+esc(action)+'</td></tr>';
+    }).join("")||'<tr><td colspan="7" class="muted">Nenhum caso na fila.</td></tr>';
     $("opportunityStatus").textContent=ao>0?"OPORTUNIDADE AUTORIZADA":po>0?"OPORTUNIDADE DETECTADA":(scannerProcess==="restarting"?"SCANNER REINICIANDO":"SEM OPORTUNIDADE");
     $("opportunityCard").classList.toggle("opportunity",po>0);
 
