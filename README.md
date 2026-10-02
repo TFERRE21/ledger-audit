@@ -1,27 +1,29 @@
 # ledger-audit
 
-Toolkit for blockchain transaction auditing, reconciliation and evidence-based recovery research.
+Read-only blockchain transaction auditing and reconciliation toolkit.
 
-## Scope
-- Public blockchain indexing and transaction analysis
-- Detection of failed, reverted and anomalous transactions
-- Reconciliation between exchange records and on-chain data
-- Evidence and case management
-- Testnet-first validation
-- No private keys or seed phrases
-- No automated transfer of third-party assets
+## Current components
 
-## Architecture
-- scanner/ — discovery and transaction collection
-- indexer/ — normalized blockchain data
-- analyzers/ — anomaly and reconciliation rules
-- blockchain/ — chain adapters
-- exchange/ — read-only exchange adapters
-- recovery/ — eligibility/evidence assessment only
-- database/ — schema and persistence
-- api/ — service endpoints
-- dashboard/ — future UI
-- tests/ — automated tests
+- EVM JSON-RPC reader
+- Bounded block scanner
+- Transaction normalizer
+- Anomaly/case engine
+- PostgreSQL schema and persistence foundation
+- Binance adapter placeholder restricted to read-only data
+- Docker + PostgreSQL deployment
+- Automated tests
 
-## Security
-Use read-only API credentials whenever possible. Never commit secrets.
+## Safety model
+
+Detection is not proof of ownership or recoverability. The system does not contain private keys, seed phrases, signing logic, withdrawal logic or automatic transfer of third-party assets.
+
+## Run
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+Health: `/health`
+
+Scan: `docker compose exec app npm run scan`
