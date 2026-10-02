@@ -1,8 +1,10 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { pool } from "../database/connection.js";
 
 const port = Number(process.env.PORT || 3000);
+let scannerProcess = null;
 
 const schemaReady = pool.query(`
   ALTER TABLE transactions
@@ -51,6 +53,27 @@ async function queryDatabase(sql, params = []) {
   return pool.query(sql, params);
 }
 
+function startScanner() {
+  const autostart = String(process.env.SCANNER_AUTOSTART ?? "true").toLowerCase() === "true";
+  if (!autostart || scannerProcess) return;
+
+  console.log("[SCANNER] autostart enabled");
+  scannerProcess = spawn(process.execPath, ["scanner/runScan.js"], {
+    stdio: "inherit",
+    env: process.env
+  });
+
+  scannerProcess.on("error", error => {
+    console.error("[SCANNER] process error:", error.message);
+    scannerProcess = null;
+  });
+
+  scannerProcess.on("exit", (code, signal) => {
+    console.log(`[SCANNER] process exited code=${code ?? "null"} signal=${signal ?? "none"}`);
+    scannerProcess = null;
+  });
+}
+
 async function handle(req, res) {
   const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   const pathname = requestUrl.pathname;
@@ -74,7 +97,8 @@ async function handle(req, res) {
     res.end(JSON.stringify({
       ok: true,
       service: "ledger-audit",
-      environment: process.env.NODE_ENV || "development"
+      environment: process.env.NODE_ENV || "development",
+      scannerProcess: scannerProcess ? "running" : "stopped"
     }));
     return;
   }
@@ -105,7 +129,9 @@ async function handle(req, res) {
       `);
       res.end(JSON.stringify({
         ok: true,
+        process: scannerProcess ? "running" : "stopped",
         configured: {
+          autostart: String(process.env.SCANNER_AUTOSTART ?? "true").toLowerCase() === "true",
           historicalScan: String(process.env.HISTORICAL_SCAN || "false").toLowerCase() === "true",
           batchBlocks: Number(process.env.HISTORICAL_BATCH_BLOCKS || 1000),
           monitor: String(process.env.MONITOR || "false").toLowerCase() === "true"
@@ -251,12 +277,23 @@ async function handle(req, res) {
   res.end(JSON.stringify({ ok: false, error: "not_found" }));
 }
 
-createServer((req, res) => {
+const server = createServer((req, res) => {
   handle(req, res).catch(() => {
     res.statusCode = 500;
     res.setHeader("content-type", "application/json; charset=utf-8");
     res.end(JSON.stringify({ ok: false, error: "internal_error" }));
   });
-}).listen(port, "0.0.0.0", () => {
-  console.log(`ledger-audit listening on 0.0.0.0:${port}`);
 });
+
+server.listen(port, "0.0.0.0", () => {
+  console.log(`ledger-audit listening on 0.0.0.0:${port}`);
+  startScanner();
+});
+
+function shutdown() {
+  if (scannerProcess && !scannerProcess.killed) scannerProcess.kill("SIGTERM");
+  server.close(() => pool.end().finally(() => process.exit(0)));
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
