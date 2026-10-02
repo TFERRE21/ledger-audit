@@ -62,6 +62,29 @@ async function handle(req, res) {
     return;
   }
 
+  if (pathname.startsWith("/api/transactions/")) {
+    const hash = decodeURIComponent(pathname.slice("/api/transactions/".length));
+    try {
+      const result = await queryDatabase(`
+        SELECT chain, tx_hash, block_number, from_address, to_address, value, status,
+               gas_used, token_transfers, observed_at
+        FROM transactions
+        WHERE tx_hash = $1
+        LIMIT 1
+      `, [hash]);
+      if (!result.rows.length) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ ok: false, error: "transaction_not_found" }));
+      } else {
+        res.end(JSON.stringify({ ok: true, transaction: result.rows[0] }));
+      }
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ ok: false, error: "database_unavailable" }));
+    }
+    return;
+  }
+
   if (pathname === "/api/stats") {
     try {
       const result = await queryDatabase(`
