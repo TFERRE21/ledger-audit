@@ -63,11 +63,22 @@ export function investigateTransaction(tx) {
     tx.recoveryMechanismVerified === true &&
     hasActionableFinding;
 
+  const tokenTransfers = Array.isArray(tx.tokenTransfers) ? tx.tokenTransfers : [];
+  const metadata = {
+    asset: tokenTransfers.length ? "ERC-20" : "ETH",
+    tokenTransfers,
+    recoveryDestination: recoveryEligible ? (tx.authorizedDestination ?? null) : null,
+    recoveryPlan: recoveryEligible
+      ? "Route only the legitimately recoverable asset to the configured authorized destination after explicit verification."
+      : null
+  };
+
   return {
     hash: tx.hash ?? null,
     chain: tx.chain ?? null,
     findings,
     evidence,
+    metadata,
     confidence,
     ownershipStatus: ownerVerified ? "verified" : "unknown",
     recoveryStatus: recoveryEligible ? "authorized_pending_execution" : "not_authorized",
