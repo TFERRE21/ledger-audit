@@ -5,7 +5,10 @@ import { pool } from "../database/connection.js";
 import { rpcCall } from "../indexer/rpcClient.js";
 
 const port = Number(process.env.PORT || 3000);
+const scannerRestartDelayMs = Math.max(3000, Number(process.env.SCANNER_RESTART_DELAY_MS || 5000));
 let scannerProcess = null;
+let scannerRestartTimer = null;
+let shuttingDown = false;
 
 const schemaReady = pool.query(`
   ALTER TABLE transactions
@@ -79,9 +82,34 @@ async function queryDatabase(sql, params = []) {
   return pool.query(sql, params);
 }
 
+async function markScannerRestarting(reason) {
+  try {
+    await queryDatabase(`
+      UPDATE scan_progress
+      SET status = 'scanner_restarting',
+          log_line = $2,
+          updated_at = NOW()
+      WHERE chain = $1
+    `, [process.env.CHAIN || "ethereum", reason]);
+  } catch {}
+}
+
+function scheduleScannerRestart(reason) {
+  if (shuttingDown || scannerRestartTimer) return;
+  const autostart = String(process.env.SCANNER_AUTOSTART ?? "true").toLowerCase() === "true";
+  if (!autostart) return;
+
+  console.error(`[SCANNER] restart scheduled in ${scannerRestartDelayMs}ms: ${reason}`);
+  void markScannerRestarting(reason);
+  scannerRestartTimer = setTimeout(() => {
+    scannerRestartTimer = null;
+    startScanner();
+  }, scannerRestartDelayMs);
+}
+
 function startScanner() {
   const autostart = String(process.env.SCANNER_AUTOSTART ?? "true").toLowerCase() === "true";
-  if (!autostart || scannerProcess) return;
+  if (!autostart || scannerProcess || shuttingDown) return;
 
   console.log("[SCANNER] autostart enabled");
   scannerProcess = spawn(process.execPath, ["scanner/runScan.js"], {
@@ -92,11 +120,15 @@ function startScanner() {
   scannerProcess.on("error", error => {
     console.error("[SCANNER] process error:", error.message);
     scannerProcess = null;
+    scheduleScannerRestart(`process_error: ${error.message}`);
   });
 
   scannerProcess.on("exit", (code, signal) => {
     console.log(`[SCANNER] process exited code=${code ?? "null"} signal=${signal ?? "none"}`);
     scannerProcess = null;
+    if (!shuttingDown) {
+      scheduleScannerRestart(`exit code=${code ?? "null"} signal=${signal ?? "none"}`);
+    }
   });
 }
 
@@ -124,7 +156,7 @@ async function handle(req, res) {
       ok: true,
       service: "ledger-audit",
       environment: process.env.NODE_ENV || "development",
-      scannerProcess: scannerProcess ? "running" : "stopped"
+      scannerProcess: scannerProcess ? "running" : (scannerRestartTimer ? "restarting" : "stopped")
     }));
     return;
   }
@@ -167,7 +199,7 @@ async function handle(req, res) {
       const firstActivityBlock = 46147;
       res.end(JSON.stringify({
         ok: true,
-        process: scannerProcess ? "running" : "stopped",
+        process: scannerProcess ? "running" : (scannerRestartTimer ? "restarting" : "stopped"),
         configured: {
           autostart: String(process.env.SCANNER_AUTOSTART ?? "true").toLowerCase() === "true",
           historicalScan: String(process.env.HISTORICAL_SCAN || "false").toLowerCase() === "true",
@@ -397,6 +429,12 @@ server.listen(port, "0.0.0.0", () => {
 });
 
 function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (scannerRestartTimer) {
+    clearTimeout(scannerRestartTimer);
+    scannerRestartTimer = null;
+  }
   if (scannerProcess && !scannerProcess.killed) scannerProcess.kill("SIGTERM");
   server.close(() => pool.end().finally(() => process.exit(0)));
 }
