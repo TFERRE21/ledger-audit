@@ -1,83 +1,33 @@
 <!doctype html>
-<html lang="pt-BR">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ledger Audit — Ethereum</title>
 <style>
-*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:#0b1020;color:#eef2ff}
-header{padding:22px 28px;border-bottom:1px solid #202943;background:#10172a;display:flex;justify-content:space-between;align-items:center}
-h1{margin:0;font-size:22px}.sub{color:#93a0bd;font-size:13px;margin-top:5px}.badge{padding:7px 12px;border-radius:999px;background:#173b2b;color:#75e0a0;font-size:12px}
-main{padding:24px;max-width:1400px;margin:auto}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-.card{background:#11182b;border:1px solid #202943;border-radius:12px;padding:18px}.label{color:#93a0bd;font-size:12px}.value{font-size:27px;font-weight:700;margin-top:8px}
-.section{margin-top:22px}.section h2{font-size:16px;margin:0 0 12px}.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:10px;border-bottom:1px solid #202943;vertical-align:top}th{color:#93a0bd}
-.status{display:inline-block;padding:4px 8px;border-radius:6px;background:#252d44}.high{background:#4a2525;color:#ffaaa0}.medium{background:#4a3b20;color:#ffd98a}
-.muted{color:#7f8ba5}.mono{font-family:monospace}.refresh{color:#93a0bd;font-size:12px}.click{cursor:pointer}.click:hover{background:#151e35}
-.modal{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;padding:20px}.modal.show{display:flex}.modalbox{background:#11182b;border:1px solid #303b5c;border-radius:14px;max-width:900px;width:100%;max-height:85vh;overflow:auto;padding:22px}.close{float:right;cursor:pointer;font-size:22px}.kv{display:grid;grid-template-columns:180px 1fr;gap:8px;margin:8px 0}.pill{display:inline-block;padding:5px 8px;border-radius:6px;background:#202943;margin:3px}
-@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.row{grid-template-columns:1fr}}@media(max-width:600px){.grid{grid-template-columns:1fr}main{padding:14px}header{padding:16px}.kv{grid-template-columns:1fr}}
-</style>
-</head>
-<body>
-<header><div><h1>Ledger Audit</h1><div class="sub">Monitoramento Ethereum • auditoria e recuperação autorizada</div></div><div><span id="online" class="badge">● ONLINE</span><div id="updated" class="refresh">atualizando...</div></div></header>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:#0b1020;color:#eef2ff}header{padding:22px 28px;border-bottom:1px solid #202943;background:#10172a;display:flex;justify-content:space-between;align-items:center}h1{margin:0;font-size:22px}.sub,.muted{color:#93a0bd;font-size:13px}.badge{padding:7px 12px;border-radius:999px;background:#173b2b;color:#75e0a0;font-size:12px}main{padding:24px;max-width:1500px;margin:auto}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.grid6{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}.card{background:#11182b;border:1px solid #202943;border-radius:12px;padding:18px}.label{color:#93a0bd;font-size:11px}.value{font-size:25px;font-weight:700;margin-top:7px}.section{margin-top:22px}.section h2{font-size:16px;margin:0 0 12px}.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:9px;border-bottom:1px solid #202943;vertical-align:top}th{color:#93a0bd}.status{display:inline-block;padding:4px 8px;border-radius:6px;background:#252d44}.high{background:#4a2525;color:#ffaaa0}.medium{background:#4a3b20;color:#ffd98a}.ok{background:#173b2b;color:#75e0a0}.mono{font-family:monospace}.refresh{color:#93a0bd;font-size:12px}.click{cursor:pointer}.click:hover{background:#151e35}.modal{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;padding:20px}.modal.show{display:flex}.modalbox{background:#11182b;border:1px solid #303b5c;border-radius:14px;max-width:900px;width:100%;max-height:85vh;overflow:auto;padding:22px}.close{float:right;cursor:pointer;font-size:22px}.kv{display:grid;grid-template-columns:180px 1fr;gap:8px;margin:8px 0}.pill{display:inline-block;padding:5px 8px;border-radius:6px;background:#202943;margin:3px}@media(max-width:1100px){.grid6{grid-template-columns:repeat(3,1fr)}}@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.row{grid-template-columns:1fr}}@media(max-width:600px){.grid,.grid6{grid-template-columns:1fr}main{padding:14px}header{padding:16px}.kv{grid-template-columns:1fr}}
+</style></head><body>
+<header><div><h1>Ledger Audit</h1><div class="sub">Ethereum • descoberta, investigação e recuperação autorizada</div></div><div><span id="online" class="badge">● ONLINE</span><div id="updated" class="refresh">atualizando...</div></div></header>
 <main>
 <div class="grid">
-<div class="card"><div class="label">TRANSAÇÕES</div><div id="transactions" class="value">—</div></div>
-<div class="card"><div class="label">CASOS</div><div id="cases" class="value">—</div></div>
-<div class="card"><div class="label">ALTA CONFIANÇA</div><div id="high" class="value">—</div></div>
-<div class="card"><div class="label">RECUPERAÇÕES</div><div id="recovery" class="value">—</div></div>
+<div class="card"><div class="label">TRANSAÇÕES</div><div id="transactions" class="value">—</div></div><div class="card"><div class="label">CASOS</div><div id="cases" class="value">—</div></div><div class="card"><div class="label">ALTA CONFIANÇA</div><div id="high" class="value">—</div></div><div class="card"><div class="label">CANDIDATOS AUTORIZADOS</div><div id="authorized" class="value">—</div></div>
 </div>
-
+<div class="section"><div class="card"><h2>Valores potencialmente perdidos</h2><div class="grid6">
+<div><div class="label">CASOS BLOQUEADOS</div><div id="blocked" class="value">—</div></div><div><div class="label">AUTORIZADOS</div><div id="auth" class="value">—</div></div><div><div class="label">ETH / CASOS</div><div id="ethcases" class="value">—</div></div><div><div class="label">RECUPERAÇÕES</div><div id="executions" class="value">—</div></div><div><div class="label">RECUPERADO</div><div id="recovered" class="value">—</div></div><div><div class="label">LÍQUIDO</div><div id="net" class="value">—</div></div>
+</div></div></div>
 <div class="section row">
-<div class="card"><h2>Destino de recuperação</h2><p>Carteira autorizada: <b id="destination">configurando...</b></p><p>Modo: <b id="recoveryMode">DRY_RUN</b></p><p class="muted">Se houver recuperação legitimamente autorizada, o destino configurado é esta carteira. A execução permanece bloqueada até a propriedade/autoridade e o mecanismo de recuperação serem verificados.</p></div>
-<div class="card"><h2>Status operacional</h2><p>🟢 API: <b id="apiStatus">verificando</b></p><p>🟢 Banco: <b id="dbStatus">verificando</b></p><p>🟡 Recuperação: <b>DRY_RUN</b></p><p class="muted">O sistema não varre nem transfere fundos de terceiros. Ele apenas prepara recuperações legitimamente autorizadas.</p></div>
+<div class="card"><h2>Política de recuperação</h2><p>Modo atual: <b id="mode">DRY_RUN</b></p><p>Destino autorizado: <b id="destination">configurando...</b></p><p class="muted">Casos sem autoridade verificável, com mecanismo bloqueado ou evidência insuficiente permanecem sem movimentação.</p></div>
+<div class="card"><h2>Operação</h2><p>API: <b id="api">verificando</b> &nbsp; Banco: <b id="db">verificando</b></p><p>Gas: contabilizado por recuperação.</p><p class="muted">Nenhuma seed phrase ou chave privada é armazenada no repositório.</p></div>
 </div>
-
-<div class="section"><div class="card"><h2>Últimos casos</h2><div style="overflow:auto"><table><thead><tr><th>Hash</th><th>Confiança</th><th>Propriedade</th><th>Recuperação</th><th>Ativo</th><th>Evidências</th></tr></thead><tbody id="caseRows"><tr><td colspan="6" class="muted">Carregando...</td></tr></tbody></table></div></div></div>
-<div class="section"><div class="card"><h2>Últimas transações <span class="muted">(clique para investigar)</span></h2><div style="overflow:auto"><table><thead><tr><th>Bloco</th><th>Hash</th><th>De</th><th>Para</th><th>Status</th><th>Tokens</th></tr></thead><tbody id="txRows"><tr><td colspan="6" class="muted">Carregando...</td></tr></tbody></table></div></div></div>
+<div class="section"><div class="card"><h2>Últimos casos</h2><div style="overflow:auto"><table><thead><tr><th>Hash</th><th>Confiança</th><th>Propriedade</th><th>Recuperação</th><th>Ativo</th><th>Evidências</th></tr></thead><tbody id="casesRows"></tbody></table></div></div></div>
+<div class="section"><div class="card"><h2>Últimas recuperações</h2><div style="overflow:auto"><table><thead><tr><th>Data</th><th>Ativo</th><th>Valor</th><th>Gas</th><th>Líquido</th><th>Destino</th><th>Status</th></tr></thead><tbody id="recoveryRows"></tbody></table></div></div></div>
+<div class="section"><div class="card"><h2>Últimas transações <span class="muted">(clique para investigar)</span></h2><div style="overflow:auto"><table><thead><tr><th>Bloco</th><th>Hash</th><th>De</th><th>Para</th><th>Status</th><th>Tokens</th></tr></thead><tbody id="txRows"></tbody></table></div></div></div>
 </main>
-
 <div id="modal" class="modal" onclick="if(event.target===this)closeModal()"><div class="modalbox"><span class="close" onclick="closeModal()">×</span><h2>Investigação da transação</h2><div id="detail">Carregando...</div></div></div>
-
 <script>
-const $=id=>document.getElementById(id);
-const short=(v,n=12)=>v?v.slice(0,n)+"…"+v.slice(-6):"—";
+const $=id=>document.getElementById(id), short=(v,n=12)=>v?v.slice(0,n)+"…"+v.slice(-6):"—", mask=v=>v?v.slice(0,10)+"…"+v.slice(-8):"não configurada";
 const esc=v=>String(v??"—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
-const mask=v=>v?v.slice(0,10)+"…"+v.slice(-8):"não configurada";
-
-async function openTx(hash){
-  $("modal").classList.add("show"); $("detail").textContent="Carregando...";
-  try{
-    const r=await fetch("/api/transactions/"+encodeURIComponent(hash)); const j=await r.json();
-    if(!j.ok) throw new Error(j.error||"erro");
-    const x=j.transaction||{}; const transfers=x.token_transfers||[];
-    $("detail").innerHTML=
-      '<div class="kv"><b>Hash</b><span class="mono">'+esc(x.tx_hash)+'</span></div>'+
-      '<div class="kv"><b>Bloco</b><span>'+esc(x.block_number)+'</span></div>'+
-      '<div class="kv"><b>Status</b><span>'+esc(x.status)+'</span></div>'+
-      '<div class="kv"><b>De</b><span class="mono">'+esc(x.from_address)+'</span></div>'+
-      '<div class="kv"><b>Para</b><span class="mono">'+esc(x.to_address)+'</span></div>'+
-      '<div class="kv"><b>Valor ETH</b><span>'+esc(x.value)+'</span></div>'+
-      '<div class="kv"><b>Gas usado</b><span>'+esc(x.gas_used)+'</span></div>'+
-      '<h3>Transferências ERC-20</h3>'+
-      (transfers.length?transfers.map(t=>'<div class="pill"><b>Contrato:</b> '+esc(t.tokenContract)+'<br><b>De:</b> '+esc(t.from)+'<br><b>Para:</b> '+esc(t.to)+'<br><b>Quantidade (hex):</b> '+esc(t.amountHex)+'</div>').join(""):"<p class='muted'>Nenhuma transferência ERC-20 detectada.</p>");
-  }catch(e){$("detail").textContent="Não foi possível carregar a investigação: "+e.message}
-}
+async function openTx(hash){$("modal").classList.add("show");$("detail").textContent="Carregando...";try{const j=await (await fetch("/api/transactions/"+encodeURIComponent(hash))).json();if(!j.ok)throw Error(j.error);const x=j.transaction||{},ts=x.token_transfers||[];$("detail").innerHTML='<div class="kv"><b>Hash</b><span class="mono">'+esc(x.tx_hash)+'</span></div><div class="kv"><b>Bloco</b><span>'+esc(x.block_number)+'</span></div><div class="kv"><b>Status</b><span>'+esc(x.status)+'</span></div><div class="kv"><b>De</b><span class="mono">'+esc(x.from_address)+'</span></div><div class="kv"><b>Para</b><span class="mono">'+esc(x.to_address)+'</span></div><div class="kv"><b>Valor ETH</b><span>'+esc(x.value)+'</span></div><div class="kv"><b>Gas</b><span>'+esc(x.gas_used)+'</span></div><h3>ERC-20</h3>'+(ts.length?ts.map(t=>'<div class="pill"><b>Contrato:</b> '+esc(t.tokenContract)+'<br><b>De:</b> '+esc(t.from)+'<br><b>Para:</b> '+esc(t.to)+'<br><b>Quantidade hex:</b> '+esc(t.amountHex)+'</div>').join(""):"<p class='muted'>Nenhuma transferência ERC-20.</p>")}catch(e){$("detail").textContent="Erro: "+e.message}}
 function closeModal(){$("modal").classList.remove("show")}
-
-async function load(){
- try{
-  const [s,c,t,h,r]=await Promise.all([fetch("/api/stats"),fetch("/api/cases"),fetch("/api/transactions"),fetch("/health"),fetch("/api/recovery")]);
-  const sj=await s.json(), cj=await c.json(), tj=await t.json(), hj=await h.json(), rj=await r.json();
-  const st=sj.stats||{}; $("transactions").textContent=Number(st.transactions||0).toLocaleString("pt-BR"); $("cases").textContent=Number(st.cases||0).toLocaleString("pt-BR"); $("high").textContent=Number(st.high_confidence_cases||0).toLocaleString("pt-BR"); $("recovery").textContent=Number(st.recovery_candidates||0).toLocaleString("pt-BR");
-  $("apiStatus").textContent=hj.ok?"online":"erro"; $("dbStatus").textContent=sj.ok?"online":"indisponível"; $("recoveryMode").textContent=rj.mode||"DRY_RUN"; $("destination").textContent=mask(rj.authorizedDestination);
-  $("caseRows").innerHTML=(cj.cases||[]).slice(0,20).map(x=>{
-    const meta=x.metadata||{}; const asset=meta.asset||"ETH";
-    return '<tr><td class="mono">'+esc(short(x.tx_hash))+'</td><td><span class="status '+esc(x.confidence)+'">'+esc(x.confidence)+'</span></td><td>'+esc(x.ownership_status)+'</td><td>'+esc(x.recovery_status)+'</td><td>'+esc(asset)+'</td><td>'+esc((x.evidence||[]).join(", ")||"—")+'</td></tr>';
-  }).join("")||'<tr><td colspan="6" class="muted">Nenhum caso.</td></tr>';
-  $("txRows").innerHTML=(tj.transactions||[]).slice(0,20).map(x=>'<tr class="click" onclick="openTx('+JSON.stringify(x.tx_hash)+')"><td>'+esc(x.block_number)+'</td><td class="mono">'+esc(short(x.tx_hash))+'</td><td class="mono">'+esc(short(x.from_address))+'</td><td class="mono">'+esc(short(x.to_address))+'</td><td>'+esc(x.status)+'</td><td>'+Number((x.token_transfers||[]).length)+'</td></tr>').join("")||'<tr><td colspan="6" class="muted">Nenhuma transação.</td></tr>';
-  $("updated").textContent="atualizado "+new Date().toLocaleTimeString("pt-BR");
- }catch(e){$("online").textContent="● OFFLINE";$("online").style.background="#4a2525";$("online").style.color="#ffaaa0";}
-}
-load();setInterval(load,15000);
-</script>
-</body></html>
+async function load(){try{const [s,c,t,h,r,e]=await Promise.all(["/api/stats","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events"].map(u=>fetch(u)));const sj=await s.json(),cj=await c.json(),tj=await t.json(),hj=await h.json(),rj=await r.json(),ej=await e.json(),st=sj.stats||{},cs=rj.cases||{},rc=rj.recoveries||{};$("transactions").textContent=Number(st.transactions||0).toLocaleString("pt-BR");$("cases").textContent=Number(st.cases||0).toLocaleString("pt-BR");$("high").textContent=Number(st.high_confidence_cases||0).toLocaleString("pt-BR");$("authorized").textContent=Number(st.recovery_candidates||0).toLocaleString("pt-BR");$("blocked").textContent=Number(cs.blocked_cases||0).toLocaleString("pt-BR");$("auth").textContent=Number(cs.authorized_cases||0).toLocaleString("pt-BR");$("ethcases").textContent=Number(cs.eth_cases||0).toLocaleString("pt-BR");$("executions").textContent=Number(rc.executions||0).toLocaleString("pt-BR");$("recovered").textContent=rc.recovered_amount||"0";$("net").textContent=rc.net_amount||"0";$("api").textContent=hj.ok?"online":"erro";$("db").textContent=sj.ok?"online":"indisponível";const rr=await (await fetch("/api/recovery")).json();$("mode").textContent=rr.mode||"DRY_RUN";$("destination").textContent=mask(rr.authorizedDestination);
+$("casesRows").innerHTML=(cj.cases||[]).slice(0,30).map(x=>{const m=x.metadata||{};return '<tr><td class="mono">'+esc(short(x.tx_hash))+'</td><td><span class="status '+esc(x.confidence)+'">'+esc(x.confidence)+'</span></td><td>'+esc(x.ownership_status)+'</td><td>'+esc(x.recovery_status)+'</td><td>'+esc(m.asset||"ETH")+'</td><td>'+esc((x.evidence||[]).join(", ")||"—")+'</td></tr>'}).join("")||'<tr><td colspan="6" class="muted">Nenhum caso.</td></tr>';
+$("recoveryRows").innerHTML=(ej.events||[]).map(x=>'<tr><td>'+esc(new Date(x.created_at).toLocaleString("pt-BR"))+'</td><td>'+esc(x.asset)+'</td><td>'+esc(x.amount)+'</td><td>'+esc(x.gas_amount)+'</td><td>'+esc(x.net_amount)+'</td><td class="mono">'+esc(mask(x.destination))+'</td><td>'+esc(x.status)+'</td></tr>').join("")||'<tr><td colspan="7" class="muted">Nenhuma recuperação registrada.</td></tr>';
+$("txRows").innerHTML=(tj.transactions||[]).slice(0,30).map(x=>'<tr class="click" onclick="openTx('+JSON.stringify(x.tx_hash)+')"><td>'+esc(x.block_number)+'</td><td class="mono">'+esc(short(x.tx_hash))+'</td><td class="mono">'+esc(short(x.from_address))+'</td><td class="mono">'+esc(short(x.to_address))+'</td><td>'+esc(x.status)+'</td><td>'+Number((x.token_transfers||[]).length)+'</td></tr>').join("")||'<tr><td colspan="6" class="muted">Nenhuma transação.</td></tr>';$("updated").textContent="atualizado "+new Date().toLocaleTimeString("pt-BR")}catch(e){$("online").textContent="● OFFLINE";$("online").style.background="#4a2525";$("online").style.color="#ffaaa0"}}load();setInterval(load,15000);
+</script></body></html>
