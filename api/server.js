@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import { pool } from "../database/connection.js";
 import { rpcCall } from "../indexer/rpcClient.js";
 import { ethers } from "ethers";
+import { getRecoveryRegistryReadContract, isRecoveryRegistryConfigured } from "../blockchain/recoveryRegistry.js";
 import {
   buildOwnerAuthorizationMessage,
   verifyOwnerAuthorization
@@ -64,6 +65,10 @@ const schemaReady = pool.query(`
     ADD COLUMN IF NOT EXISTS transaction_hash TEXT;
   ALTER TABLE recovery_authorizations
     ADD COLUMN IF NOT EXISTS transaction_chain_id TEXT;
+  ALTER TABLE recovery_authorizations
+    ADD COLUMN IF NOT EXISTS onchain_request_id TEXT;
+  ALTER TABLE recovery_authorizations
+    ADD COLUMN IF NOT EXISTS onchain_tx_hash TEXT;
   CREATE TABLE IF NOT EXISTS scan_progress (
     chain TEXT PRIMARY KEY,
     next_block BIGINT NOT NULL DEFAULT 0,
@@ -1182,6 +1187,50 @@ async function handle(req, res) {
     return;
   }
 
+  if (pathname === "/api/recovery/authorizations/sync" && req.method === "POST") {
+    try {
+      if (!isRecoveryRegistryConfigured()) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ ok:false, error:"recovery_registry_not_configured" }));
+        return;
+      }
+      const registry = getRecoveryRegistryReadContract();
+      const result = await queryDatabase(`
+        SELECT id, onchain_request_id, status
+        FROM recovery_authorizations
+        WHERE onchain_request_id IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 500
+      `);
+      let updated = 0;
+      for (const row of result.rows) {
+        try {
+          const request = await registry.requests(BigInt(row.onchain_request_id));
+          const chainStatus = Number(request.status);
+          const mapped = ({1:"pending",2:"authorized",3:"rejected",4:"expired"})[chainStatus];
+          if (mapped && mapped !== row.status) {
+            await queryDatabase(
+              `UPDATE recovery_authorizations
+               SET status = $1,
+                   authorized_at = CASE WHEN $1 = 'authorized' THEN NOW() ELSE authorized_at END
+               WHERE id = $2`,
+              [mapped, row.id]
+            );
+            updated++;
+          }
+        } catch (error) {
+          console.error("[AUTHORIZATION_ONCHAIN_SYNC_ITEM]", row.id, error.message);
+        }
+      }
+      res.end(JSON.stringify({ ok:true, checked:result.rows.length, updated }));
+    } catch (error) {
+      console.error("[AUTHORIZATION_ONCHAIN_SYNC]", error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok:false, error:"authorization_onchain_sync_failed" }));
+    }
+    return;
+  }
+
   if (pathname === "/api/recovery/authorizations/backfill" && req.method === "POST") {
     try {
       const result = await backfillOpportunityAuthorizationRequests();
@@ -1214,6 +1263,8 @@ async function handle(req, res) {
           ra.authorized_at,
           ra.transaction_hash,
           ra.transaction_chain_id,
+          ra.onchain_request_id,
+          ra.onchain_tx_hash,
           ic.tx_hash AS tx_hash,
           ic.chain,
           ic.recovery_status
