@@ -152,8 +152,6 @@ async function backfillOpportunityAuthorizationRequests() {
       ic.findings @> '[{"type":"possible_lost_funds"}]'::jsonb
       OR ic.confidence = 'high'
     )
-      AND (
-        ic.metadata->>'ownerCandidateAddress' ~ '^0x[0-9a-fA-F]{40}
     ORDER BY ic.id DESC
     LIMIT 500
   `);
