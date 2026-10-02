@@ -72,6 +72,7 @@ const schemaReady = pool.query(`
     signals JSONB NOT NULL DEFAULT '[]'::jsonb,
     method_signals JSONB NOT NULL DEFAULT '[]'::jsonb,
     evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
+    token_balances JSONB NOT NULL DEFAULT '[]'::jsonb,
     potential BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -208,8 +209,8 @@ export async function saveContractFinding(finding) {
   await schemaReady;
   await pool.query(
     `INSERT INTO contract_findings
-      (chain,address,block_number,eth_balance_wei,code_size_bytes,owner_address,admin_address,signals,method_signals,evidence,potential)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11)
+      (chain,address,block_number,eth_balance_wei,code_size_bytes,owner_address,admin_address,signals,method_signals,evidence,token_balances,potential)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12)
      ON CONFLICT (chain,address) DO UPDATE SET
        block_number=EXCLUDED.block_number,
        eth_balance_wei=EXCLUDED.eth_balance_wei,
@@ -219,6 +220,7 @@ export async function saveContractFinding(finding) {
        signals=EXCLUDED.signals,
        method_signals=EXCLUDED.method_signals,
        evidence=EXCLUDED.evidence,
+       token_balances=EXCLUDED.token_balances,
        potential=EXCLUDED.potential,
        updated_at=NOW()`,
     [
@@ -226,7 +228,7 @@ export async function saveContractFinding(finding) {
       String(finding.ethBalanceWei ?? "0"), Number(finding.codeSizeBytes ?? 0),
       finding.owner ?? null, finding.admin ?? null,
       JSON.stringify(finding.signals ?? []), JSON.stringify(finding.methodSignals ?? []),
-      JSON.stringify(finding.evidence ?? []), Boolean(finding.potential)
+      JSON.stringify(finding.evidence ?? []), JSON.stringify(finding.tokenBalances ?? []), Boolean(finding.potential)
     ]
   );
 }
