@@ -42,6 +42,9 @@ const schemaReady = pool.query(`
   ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'idle';
   ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS batch_transactions BIGINT NOT NULL DEFAULT 0;
   ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS batch_cases BIGINT NOT NULL DEFAULT 0;
+  ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS speed_blocks_per_second DOUBLE PRECISION NOT NULL DEFAULT 0;
+  ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS eta_seconds DOUBLE PRECISION;
+  ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS log_line TEXT;
 `);
 
 async function queryDatabase(sql, params = []) {
@@ -118,7 +121,7 @@ async function handle(req, res) {
     try {
       const result = await queryDatabase(`
         SELECT chain, next_block, current_block, status,
-               batch_transactions, batch_cases, updated_at
+               batch_transactions, batch_cases, speed_blocks_per_second, eta_seconds, log_line, updated_at
         FROM scan_progress
         ORDER BY updated_at DESC
         LIMIT 10
