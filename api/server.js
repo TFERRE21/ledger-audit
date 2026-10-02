@@ -26,6 +26,19 @@ const schemaReady = pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_recovery_events_status ON recovery_events(status);
   CREATE INDEX IF NOT EXISTS idx_recovery_events_chain ON recovery_events(chain);
+  CREATE TABLE IF NOT EXISTS scan_progress (
+    chain TEXT PRIMARY KEY,
+    next_block BIGINT NOT NULL DEFAULT 0,
+    current_block BIGINT NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'idle',
+    batch_transactions BIGINT NOT NULL DEFAULT 0,
+    batch_cases BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS current_block BIGINT NOT NULL DEFAULT 0;
+  ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'idle';
+  ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS batch_transactions BIGINT NOT NULL DEFAULT 0;
+  ALTER TABLE scan_progress ADD COLUMN IF NOT EXISTS batch_cases BIGINT NOT NULL DEFAULT 0;
 `);
 
 async function queryDatabase(sql, params = []) {
@@ -71,8 +84,39 @@ async function handle(req, res) {
       service: "ledger-audit",
       status: "online",
       dashboard: "/dashboard",
-      endpoints: ["/health", "/api/stats", "/api/transactions", "/api/cases"]
+      endpoints: ["/health", "/api/stats", "/api/transactions", "/api/cases", "/api/scanner/status"]
     }));
+    return;
+  }
+
+  if (pathname === "/api/scanner/status") {
+    try {
+      const result = await queryDatabase(`
+        SELECT chain, next_block, current_block, status,
+               batch_transactions, batch_cases, updated_at
+        FROM scan_progress
+        ORDER BY updated_at DESC
+        LIMIT 10
+      `);
+      const latest = await queryDatabase(`
+        SELECT COUNT(*) AS transactions_last_60s
+        FROM transactions
+        WHERE observed_at >= NOW() - INTERVAL '60 seconds'
+      `);
+      res.end(JSON.stringify({
+        ok: true,
+        configured: {
+          historicalScan: String(process.env.HISTORICAL_SCAN || "false").toLowerCase() === "true",
+          batchBlocks: Number(process.env.HISTORICAL_BATCH_BLOCKS || 1000),
+          monitor: String(process.env.MONITOR || "false").toLowerCase() === "true"
+        },
+        scanners: result.rows,
+        activity: latest.rows[0]
+      }));
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
     return;
   }
 
@@ -189,7 +233,7 @@ async function handle(req, res) {
   if (pathname === "/api/cases") {
     try {
       const result = await queryDatabase(`
-        SELECT id, chain, tx_hash, confidence, ownership_status, recovery_status,
+        SELECT id, chain, tx_hash, block_number, confidence, ownership_status, recovery_status,
                findings, evidence, metadata, created_at, updated_at
         FROM investigation_cases
         ORDER BY id DESC
