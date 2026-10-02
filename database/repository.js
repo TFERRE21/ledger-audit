@@ -69,6 +69,9 @@ const schemaReady = pool.query(`
     code_size_bytes INTEGER NOT NULL DEFAULT 0,
     owner_address TEXT,
     admin_address TEXT,
+    implementation_address TEXT,
+    beacon_address TEXT,
+    triage_status TEXT NOT NULL DEFAULT 'CODE_DETECTED',
     signals JSONB NOT NULL DEFAULT '[]'::jsonb,
     method_signals JSONB NOT NULL DEFAULT '[]'::jsonb,
     evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -80,6 +83,9 @@ const schemaReady = pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_contract_findings_potential ON contract_findings(potential);
   ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS token_balances JSONB NOT NULL DEFAULT '[]'::jsonb;
+  ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS implementation_address TEXT;
+  ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS beacon_address TEXT;
+  ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS triage_status TEXT NOT NULL DEFAULT 'CODE_DETECTED';
 `);
 
 export async function saveTransaction(tx) {
@@ -210,14 +216,17 @@ export async function saveContractFinding(finding) {
   await schemaReady;
   await pool.query(
     `INSERT INTO contract_findings
-      (chain,address,block_number,eth_balance_wei,code_size_bytes,owner_address,admin_address,signals,method_signals,evidence,token_balances,potential)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12)
+      (chain,address,block_number,eth_balance_wei,code_size_bytes,owner_address,admin_address,implementation_address,beacon_address,triage_status,signals,method_signals,evidence,token_balances,potential)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15)
      ON CONFLICT (chain,address) DO UPDATE SET
        block_number=EXCLUDED.block_number,
        eth_balance_wei=EXCLUDED.eth_balance_wei,
        code_size_bytes=EXCLUDED.code_size_bytes,
        owner_address=EXCLUDED.owner_address,
        admin_address=EXCLUDED.admin_address,
+       implementation_address=EXCLUDED.implementation_address,
+       beacon_address=EXCLUDED.beacon_address,
+       triage_status=EXCLUDED.triage_status,
        signals=EXCLUDED.signals,
        method_signals=EXCLUDED.method_signals,
        evidence=EXCLUDED.evidence,
@@ -228,6 +237,8 @@ export async function saveContractFinding(finding) {
       finding.chain, finding.address, finding.blockNumber ?? null,
       String(finding.ethBalanceWei ?? "0"), Number(finding.codeSizeBytes ?? 0),
       finding.owner ?? null, finding.admin ?? null,
+      finding.implementation ?? null, finding.beacon ?? null,
+      finding.triageStatus ?? "CODE_DETECTED",
       JSON.stringify(finding.signals ?? []), JSON.stringify(finding.methodSignals ?? []),
       JSON.stringify(finding.evidence ?? []), JSON.stringify(finding.tokenBalances ?? []), Boolean(finding.potential)
     ]
