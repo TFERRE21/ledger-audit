@@ -706,7 +706,7 @@ async function handle(req, res) {
           ra.created_at,
           ra.authorized_at,
           ic.chain,
-          ic.hash AS tx_hash,
+          ic.tx_hash AS tx_hash,
           ic.metadata
         FROM recovery_authorizations ra
         LEFT JOIN investigation_cases ic
