@@ -1,21 +1,7 @@
 # First scan
 
-This scanner is read-only.
+The scanner uses standard Ethereum JSON-RPC read methods such as `eth_blockNumber` and `eth_getBlockByNumber` to inspect public chain data. citeturn0search0
 
-## Configuration
+If FROM_BLOCK and TO_BLOCK are both 0, the scanner automatically reads the current block height and inspects only the latest five blocks.
 
-Copy .env.example to .env and provide:
-
-- RPC_URL
-- CHAIN
-- FROM_BLOCK
-- TO_BLOCK
-
-Use a small block range during development.
-
-Example concept:
-
-FROM_BLOCK=latest_known_block
-TO_BLOCK=latest_known_block_plus_small_range
-
-The scanner only reads public RPC data and does not sign or broadcast transactions.
+For a production scan, configure a real RPC endpoint and use bounded ranges. No signing, private keys or transaction broadcasting are used.
