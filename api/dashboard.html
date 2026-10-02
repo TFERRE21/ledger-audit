@@ -6,7 +6,7 @@
 </style></head><body>
 <header><div><h1>Ledger Audit</h1><div class="sub">Ethereum • descoberta, investigação e recuperação autorizada</div></div><div><span id="online" class="badge">● ONLINE</span><div id="updated" class="refresh">atualizando...</div></div></header>
 <main>
-<div class="section"><div class="card" id="ownerRequests"><h2>📨 Solicitações aos proprietários</h2><div id="authorizationConfigStatus" class="muted" style="margin:8px 0 14px"></div><button onclick="backfillOwnerAuthorizations()" style="margin-bottom:14px">🔄 GERAR SOLICITAÇÕES DOS CASOS JÁ LOCALIZADOS</button><div class="grid6"><div><div class="label">AGUARDANDO APROVAÇÃO</div><div id="reqPending" class="value">0</div></div><div><div class="label">APROVADAS</div><div id="reqApproved" class="value">0</div></div><div><div class="label">RECUSADAS</div><div id="reqRejected" class="value">0</div></div><div><div class="label">EXPIRADAS</div><div id="reqExpired" class="value">0</div></div><div><div class="label">TX ENVIADAS</div><div id="reqSent" class="value">0</div></div><div><div class="label">CONFIRMADAS</div><div id="reqConfirmed" class="value">0</div></div></div><div style="overflow:auto;margin-top:14px"><table><thead><tr><th>ID</th><th>Carteira</th><th>Caso</th><th>Rede</th><th>Destino</th><th>Status</th><th>Criada</th><th>Autorizada</th><th>Hash</th></tr></thead><tbody id="ownerRequestRows"></tbody></table></div></div></div><div class="grid">
+<div class="section"><div class="card" id="ownerRequests"><h2>📨 Solicitações aos proprietários</h2><div id="authorizationConfigStatus" class="muted" style="margin:8px 0 14px"></div><button onclick="backfillOwnerAuthorizations()" style="margin-bottom:14px">🔄 GERAR SOLICITAÇÕES DOS CASOS JÁ LOCALIZADOS</button> <button onclick="publishMissingOnChain()" style="margin-bottom:14px">⛓️ PUBLICAR SOLICITAÇÕES NA BLOCKCHAIN</button><div class="grid6"><div><div class="label">AGUARDANDO APROVAÇÃO</div><div id="reqPending" class="value">0</div></div><div><div class="label">APROVADAS</div><div id="reqApproved" class="value">0</div></div><div><div class="label">RECUSADAS</div><div id="reqRejected" class="value">0</div></div><div><div class="label">EXPIRADAS</div><div id="reqExpired" class="value">0</div></div><div><div class="label">TX ENVIADAS</div><div id="reqSent" class="value">0</div></div><div><div class="label">CONFIRMADAS</div><div id="reqConfirmed" class="value">0</div></div></div><div style="overflow:auto;margin-top:14px"><table><thead><tr><th>ID</th><th>Carteira</th><th>Caso</th><th>Rede</th><th>Destino</th><th>Status</th><th>Criada</th><th>Autorizada</th><th>Hash</th></tr></thead><tbody id="ownerRequestRows"></tbody></table></div></div></div><div class="grid">
 <div class="card"><div class="label">TRANSAÇÕES</div><div id="transactions" class="value">—</div></div><div class="card"><div class="label">CASOS</div><div id="cases" class="value">—</div></div><div class="card"><div class="label">ALTA CONFIANÇA</div><div id="high" class="value">—</div></div><div class="card"><div class="label">CANDIDATOS AUTORIZADOS</div><div id="authorized" class="value">—</div></div>
 </div>
 <div class="grid section">
@@ -101,6 +101,18 @@ function openOpportunity(type,id){
   }
 }
 
+async function publishMissingOnChain(){
+  try{
+    const response=await fetch("/api/recovery/authorizations/publish-missing",{method:"POST"});
+    const result=await response.json();
+    if(!result.ok) throw new Error(result.error||"publish_failed");
+    alert("Publicação on-chain concluída. Verificados: "+result.checked+" | Publicados: "+result.published);
+    await load();
+  }catch(error){
+    alert("Não foi possível publicar na blockchain: "+error.message);
+  }
+}
+
 async function backfillOwnerAuthorizations(){
   try{
     const response=await fetch("/api/recovery/authorizations/backfill",{method:"POST"});
@@ -161,6 +173,9 @@ async function requestOwnerAuthorization(caseId){
 
 async function load(){
   try{
+    // Sincroniza o estado do painel com o contrato on-chain antes de ler a lista.
+    try{ await fetch("/api/recovery/authorizations/sync",{method:"POST"}); }catch{}
+
     const urls=["/api/stats","/api/balances","/api/prices","/api/cases","/api/transactions","/health","/api/recovery/summary","/api/recovery/events","/api/scanner/status","/api/scanner/logs","/api/opportunities","/api/contracts","/api/recovery","/api/recovery/authorizations?limit=200"];
     const responses=await Promise.all(urls.map(u=>fetch(u)));
     const [sj,bj,pj,cj,tj,hj,rj,ej,scj,lgj,opj,ctj,rr,aj]=await Promise.all(responses.map(r=>r.json()));
