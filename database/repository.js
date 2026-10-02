@@ -29,6 +29,9 @@ const schemaReady = pool.query(`
     status TEXT NOT NULL DEFAULT 'idle',
     batch_transactions BIGINT NOT NULL DEFAULT 0,
     batch_cases BIGINT NOT NULL DEFAULT 0,
+    speed_blocks_per_second DOUBLE PRECISION NOT NULL DEFAULT 0,
+    eta_seconds DOUBLE PRECISION,
+    log_line TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   ALTER TABLE scan_progress
@@ -39,6 +42,12 @@ const schemaReady = pool.query(`
     ADD COLUMN IF NOT EXISTS batch_transactions BIGINT NOT NULL DEFAULT 0;
   ALTER TABLE scan_progress
     ADD COLUMN IF NOT EXISTS batch_cases BIGINT NOT NULL DEFAULT 0;
+  ALTER TABLE scan_progress
+    ADD COLUMN IF NOT EXISTS speed_blocks_per_second DOUBLE PRECISION NOT NULL DEFAULT 0;
+  ALTER TABLE scan_progress
+    ADD COLUMN IF NOT EXISTS eta_seconds DOUBLE PRECISION;
+  ALTER TABLE scan_progress
+    ADD COLUMN IF NOT EXISTS log_line TEXT;
 `);
 
 export async function saveTransaction(tx) {
@@ -96,7 +105,7 @@ export async function saveCase(caseData) {
 export async function getScanProgress(chain, defaultBlock = 0) {
   await schemaReady;
   const result = await pool.query(
-    `SELECT next_block, current_block, status, batch_transactions, batch_cases, updated_at
+    `SELECT next_block, current_block, status, batch_transactions, batch_cases, speed_blocks_per_second, eta_seconds, log_line, updated_at
      FROM scan_progress WHERE chain = $1 LIMIT 1`,
     [chain]
   );
@@ -115,8 +124,8 @@ export async function setScanProgress(chain, nextBlock, details = {}) {
   await schemaReady;
   await pool.query(
     `INSERT INTO scan_progress
-       (chain, next_block, current_block, status, batch_transactions, batch_cases, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,NOW())
+       (chain, next_block, current_block, status, batch_transactions, batch_cases, speed_blocks_per_second, eta_seconds, log_line, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
      ON CONFLICT (chain)
      DO UPDATE SET
        next_block = EXCLUDED.next_block,
@@ -124,6 +133,9 @@ export async function setScanProgress(chain, nextBlock, details = {}) {
        status = EXCLUDED.status,
        batch_transactions = EXCLUDED.batch_transactions,
        batch_cases = EXCLUDED.batch_cases,
+       speed_blocks_per_second = EXCLUDED.speed_blocks_per_second,
+       eta_seconds = EXCLUDED.eta_seconds,
+       log_line = EXCLUDED.log_line,
        updated_at = NOW()`,
     [
       chain,
@@ -131,7 +143,10 @@ export async function setScanProgress(chain, nextBlock, details = {}) {
       Number(details.currentBlock ?? nextBlock),
       details.status ?? 'idle',
       Number(details.batchTransactions ?? 0),
-      Number(details.batchCases ?? 0)
+      Number(details.batchCases ?? 0),
+      Number(details.speedBlocksPerSecond ?? 0),
+      details.etaSeconds == null ? null : Number(details.etaSeconds),
+      details.logLine ?? null
     ]
   );
 }
@@ -140,7 +155,7 @@ export async function getScanStatus(chain) {
   await schemaReady;
   const result = await pool.query(
     `SELECT chain, next_block, current_block, status, batch_transactions,
-            batch_cases, updated_at
+            batch_cases, speed_blocks_per_second, eta_seconds, log_line, updated_at
      FROM scan_progress WHERE chain = $1 LIMIT 1`,
     [chain]
   );
