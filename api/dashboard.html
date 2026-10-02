@@ -91,7 +91,10 @@ function openOpportunity(type,id){
       '<div class="detailgrid"><b>Saldo ETH (wei)</b><span>'+esc(x.eth_balance_wei)+'</span></div>'+
       '<div class="detailgrid"><b>Owner</b><span class="mono">'+esc(x.owner_address||"não identificado")+'</span></div>'+
       '<div class="detailgrid"><b>Admin</b><span class="mono">'+esc(x.admin_address||"não identificado")+'</span></div>'+
-      '<div class="detailgrid"><b>Indício</b><span>'+esc(x.potential?"potencial para investigação":"sem indício")+'</span></div>'+
+      '<div class="detailgrid"><b>Implementation</b><span class="mono">'+esc(x.implementation_address||"não confirmada")+'</span></div>'+
+      '<div class="detailgrid"><b>Beacon</b><span class="mono">'+esc(x.beacon_address||"não confirmado")+'</span></div>'+
+      '<div class="detailgrid"><b>Triagem</b><span>'+esc(x.triage_status||"CODE_DETECTED")+'</span></div>'+
+      '<div class="detailgrid"><b>Indício</b><span>'+esc(x.potential?"detectado para investigação":"sem indício")+'</span></div>'+
       '<div class="detailbox"><b>Sinais técnicos</b><p>'+esc(signals.join(", ")||"nenhum")+'</p></div>'+
       '<div class="detailbox"><b>Evidências registradas</b><p>'+esc((x.evidence||[]).join(" • ")||"nenhuma")+'</p></div>'+
       '<div class="detailbox"><b>Saldos ERC-20 encontrados</b><p>'+esc(JSON.stringify(tokens)||"[]")+'</p></div>'+
