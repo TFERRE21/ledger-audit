@@ -112,7 +112,7 @@ async function scanOnce() {
     }
   }
 
-  const contractFindings = await scanContracts(config.rpcUrl, transactions, Number(process.env.CONTRACT_SCAN_LIMIT || 50));
+  const contractFindings = await scanContracts(config.rpcUrl, transactions, config.contractScanLimit);
   let contractOpportunities = 0;
   for (const finding of contractFindings) {
     const normalized = { ...finding, chain: config.chain, blockNumber: toBlock };
