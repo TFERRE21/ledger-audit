@@ -11,6 +11,8 @@ const schemaReady = pool.query(`
   ALTER TABLE transactions
     ADD COLUMN IF NOT EXISTS token_transfers JSONB NOT NULL DEFAULT '[]'::jsonb;
   ALTER TABLE investigation_cases
+    ADD COLUMN IF NOT EXISTS block_number BIGINT;
+  ALTER TABLE investigation_cases
     ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
   CREATE TABLE IF NOT EXISTS recovery_events (
     id BIGSERIAL PRIMARY KEY,
