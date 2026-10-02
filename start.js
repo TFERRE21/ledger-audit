@@ -1,27 +1,25 @@
-import { spawn } from "node:child_process";
+import fs from "fs";
+import path from "path";
 
-const api = spawn(process.execPath, ["api/server.js"], {
-  stdio: "inherit",
-  env: process.env
-});
+const ethersPath = "/app/node_modules/ethers";
+const pgPath = "/app/node_modules/pg";
 
-let shuttingDown = false;
+console.log("[CHECK] Node:", process.version);
+console.log("[CHECK] /app existe:", fs.existsSync("/app"));
+console.log("[CHECK] package.json:", fs.existsSync("/app/package.json"));
+console.log("[CHECK] node_modules:", fs.existsSync("/app/node_modules"));
+console.log("[CHECK] ethers:", fs.existsSync(ethersPath));
+console.log("[CHECK] pg:", fs.existsSync(pgPath));
 
-function shutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  if (!api.killed) api.kill(signal);
+if (fs.existsSync("/app/node_modules")) {
+  console.log(
+    "[CHECK] node_modules:",
+    fs.readdirSync("/app/node_modules").slice(0, 50)
+  );
 }
 
-api.on("error", error => {
-  console.error("[START] API error:", error.message);
-});
+const { default: start } = await import("./api/server.js");
 
-api.on("exit", (code, signal) => {
-  if (shuttingDown) return;
-  console.error("[START] API exited code=" + (code ?? "null") + " signal=" + (signal ?? "none"));
-  process.exit(code || 1);
-});
-
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+if (typeof start === "function") {
+  await start();
+}
