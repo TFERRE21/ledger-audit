@@ -270,7 +270,7 @@ async function handle(req, res) {
     try {
       const result = await queryDatabase(`
         SELECT id, chain, address, block_number, eth_balance_wei, code_size_bytes,
-               owner_address, admin_address, signals, method_signals, evidence,
+               owner_address, admin_address, signals, method_signals, evidence, token_balances,
                potential, created_at, updated_at
         FROM contract_findings
         ORDER BY potential DESC, id DESC
