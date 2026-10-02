@@ -20,7 +20,8 @@ function isAddress(value) {
 
 function decodeAddress(result) {
   if (!result || typeof result !== "string" || result.length < 66) return null;
-  return "0x" + result.slice(-40);
+  const address = "0x" + result.slice(-40);
+  return /^0x0{40}$/i.test(address) ? null : address;
 }
 
 function encodeAddress(address) { return address.toLowerCase().replace(/^0x/, "").padStart(64, "0"); }
