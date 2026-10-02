@@ -235,7 +235,7 @@ async function load(){
       const ready=type==="case"&&x.recovery_status==="authorized_pending_execution"&&x.ownership_status==="verified";
       const label=type==="contract"?"CONTRATO":"CASO";
       const ref=type==="contract"?short(x.address,16):short(x.tx_hash,16);
-      const canRequest=type==="case" && x.recoveryEligible!==false && x.ownership_status==="verified" && x.recovery_status!=="authorized_pending_execution";
+      const ownerCandidate=(x.metadata&&x.metadata.ownerCandidateAddress)||""; const canRequest=type==="case" && /^0x[a-fA-F0-9]{40}$/.test(ownerCandidate) && !["authorized_pending_execution"].includes(x.recovery_status);
       const action=type==="case"
         ? (canRequest
           ? '<button class="actionbtn" onclick="event.stopPropagation();requestOwnerAuthorization('+Number(x.id)+')">SOLICITAR AUTORIZAÇÃO</button> '
