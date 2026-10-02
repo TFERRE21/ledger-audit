@@ -1,8 +1,9 @@
 import { getScanConfig } from "./config.js";
 import { getLatestBlock, scanRange } from "./rangeScanner.js";
 import { investigateTransaction } from "../analyzers/caseEngine.js";
-import { saveTransaction, saveCase, getScanProgress, setScanProgress, saveScanLog } from "../database/repository.js";
+import { saveTransaction, saveCase, getScanProgress, setScanProgress, saveScanLog, saveContractFinding } from "../database/repository.js";
 import { pool } from "../database/connection.js";
+import { scanContracts } from "./contractScanner.js";
 
 const config = getScanConfig();
 
@@ -111,6 +112,19 @@ async function scanOnce() {
     }
   }
 
+  const contractFindings = await scanContracts(config.rpcUrl, transactions, Number(process.env.CONTRACT_SCAN_LIMIT || 50));
+  let contractOpportunities = 0;
+  for (const finding of contractFindings) {
+    const normalized = { ...finding, chain: config.chain, blockNumber: toBlock };
+    await saveContractFinding(normalized);
+    if (finding.potential) {
+      contractOpportunities++;
+      const message = `[CONTRACT_OPPORTUNITY] address=${finding.address} ethBalanceWei=${finding.ethBalanceWei} owner=${finding.owner || "none"} admin=${finding.admin || "none"} signals=${[...(finding.signals||[]), ...(finding.methodSignals||[])].join(",") || "none"}`;
+      await saveScanLog({ chain: config.chain, blockNumber: toBlock, level: "contract_opportunity", message, opportunity: true });
+      console.log(message);
+    }
+  }
+
   if (config.historicalScan && historical) {
     await setScanProgress(config.chain, toBlock + 1, {
       currentBlock: toBlock,
@@ -135,6 +149,8 @@ async function scanOnce() {
     savedTransactions,
     savedCases,
     recoveryCandidates,
+    contractFindings: contractFindings.length,
+    contractOpportunities,
     recoveryMode: config.recoveryMode,
     authorizedDestinationConfigured: Boolean(config.authorizedDestination),
     nextHistoricalBlock: historical ? toBlock + 1 : null
