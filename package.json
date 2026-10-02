@@ -1,0 +1,11 @@
+{
+  "name": "ledger-audit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Blockchain transaction auditing and reconciliation toolkit",
+  "type": "module",
+  "scripts": {
+    "dev": "node api/server.js",
+    "test": "node --test"
+  }
+}
