@@ -6,6 +6,8 @@ import { pool } from "../database/connection.js";
 import { randomBytes } from "node:crypto";
 import { ethers } from "ethers";
 import { buildOwnerAuthorizationMessage } from "../recovery/ownerAuthorization.js";
+import { createOnChainRecoveryRequest, isRecoveryRegistryConfigured } from "../blockchain/recoveryRegistry.js";
+
 import { scanContracts } from "./contractScanner.js";
 
 const config = getScanConfig();
@@ -142,6 +144,37 @@ async function scanOnce() {
              VALUES ($1,$2,$3,$4,$5,'pending',$6)`,
             [caseId, ownerCandidate, String(destination).toLowerCase(), nonce, message, expiresAt]
           );
+
+          if (isRecoveryRegistryConfigured()) {
+            try {
+              let amountWei = "0";
+              if (caseData.metadata?.amountWei) {
+                amountWei = BigInt(caseData.metadata.amountWei).toString();
+              } else if (amount !== "a confirmar") {
+                amountWei = ethers.parseEther(String(amount)).toString();
+              }
+
+              const onChain = await createOnChainRecoveryRequest({
+                owner: ownerCandidate,
+                caseId,
+                chainId: Number(process.env.RECOVERY_REGISTRY_CHAIN_ID || 1),
+                amountWei,
+                destination: String(destination).toLowerCase(),
+                expiresAt
+              });
+
+              await pool.query(
+                `UPDATE recovery_authorizations
+                 SET onchain_request_id = $1, onchain_tx_hash = $2
+                 WHERE case_id = $3 AND owner_address = $4 AND status = 'pending'`,
+                [onChain.requestId, onChain.txHash, caseId, ownerCandidate]
+              );
+
+              console.log(`[AUTHORIZATION_ONCHAIN] case=${caseId} request=${onChain.requestId} tx=${onChain.txHash}`);
+            } catch (error) {
+              console.error(`[AUTHORIZATION_ONCHAIN] case=${caseId} failed`, error);
+            }
+          }
 
           await saveScanLog({
             chain: config.chain,
