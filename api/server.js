@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
 import { pool } from "../database/connection.js";
 
 const port = Number(process.env.PORT || 3000);
@@ -13,6 +14,19 @@ async function queryDatabase(sql, params = []) {
 }
 
 async function handle(req, res) {
+  if (req.url === "/dashboard" || req.url === "/dashboard/") {
+    try {
+      const html = await readFile(new URL("./dashboard.html", import.meta.url), "utf8");
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.end(html);
+    } catch {
+      res.statusCode = 500;
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.end("dashboard_unavailable");
+    }
+    return;
+  }
+
   res.setHeader("content-type", "application/json; charset=utf-8");
 
   if (req.url === "/health") {
@@ -28,6 +42,7 @@ async function handle(req, res) {
     res.end(JSON.stringify({
       service: "ledger-audit",
       status: "online",
+      dashboard: "/dashboard",
       endpoints: ["/health", "/api/stats", "/api/transactions", "/api/cases"]
     }));
     return;
@@ -39,7 +54,8 @@ async function handle(req, res) {
         SELECT
           (SELECT COUNT(*) FROM transactions) AS transactions,
           (SELECT COUNT(*) FROM investigation_cases) AS cases,
-          (SELECT COUNT(*) FROM investigation_cases WHERE confidence = 'high') AS high_confidence_cases
+          (SELECT COUNT(*) FROM investigation_cases WHERE confidence = 'high') AS high_confidence_cases,
+          (SELECT COUNT(*) FROM investigation_cases WHERE recovery_status = 'authorized_pending_execution') AS recovery_candidates
       `);
       res.end(JSON.stringify({ ok: true, stats: result.rows[0] }));
     } catch (error) {
