@@ -1,6 +1,6 @@
 {
   "name": "ledger-audit",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "description": "Blockchain transaction auditing and reconciliation toolkit",
   "type": "module",
@@ -9,10 +9,12 @@
     "dev": "node start.js",
     "scan": "node scanner/runScan.js",
     "api": "node api/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "deployRecoveryRegistry": "node scripts/deployRecoveryRegistry.js"
   },
   "dependencies": {
     "pg": "^8.16.3",
-    "ethers": "^6.15.0"
+    "ethers": "^6.15.0",
+    "solc": "^0.8.30"
   }
 }
