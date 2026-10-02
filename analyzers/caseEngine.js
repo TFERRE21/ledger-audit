@@ -23,20 +23,14 @@ export function investigateTransaction(tx) {
     evidence.push("transaction_status_indicates_failure");
   }
 
-  if (
-    tx.expectedValue != null &&
-    tx.receivedValue != null &&
-    String(tx.expectedValue) !== String(tx.receivedValue)
-  ) {
+  if (tx.expectedValue != null && tx.receivedValue != null &&
+      String(tx.expectedValue) !== String(tx.receivedValue)) {
     findings.push({ type: TYPES.VALUE_MISMATCH, severity: "high" });
     evidence.push("expected_and_received_values_differ");
   }
 
-  if (
-    tx.expectedDestination &&
-    tx.to &&
-    tx.expectedDestination.toLowerCase() !== tx.to.toLowerCase()
-  ) {
+  if (tx.expectedDestination && tx.to &&
+      tx.expectedDestination.toLowerCase() !== tx.to.toLowerCase()) {
     findings.push({ type: TYPES.MISSING_DESTINATION, severity: "high" });
     evidence.push("destination_differs_from_expected");
   }
@@ -46,21 +40,20 @@ export function investigateTransaction(tx) {
     evidence.push("non_empty_input_to_destination");
   }
 
-  if (tx.value && tx.value !== "0x0" && tx.value !== "0") {
-    if (isZeroAddress(tx.to)) {
-      findings.push({ type: TYPES.POSSIBLE_LOST_FUNDS, severity: "high" });
-      evidence.push("non_zero_value_with_zero_destination");
-    }
+  if (tx.value && tx.value !== "0x0" && tx.value !== "0" && isZeroAddress(tx.to)) {
+    findings.push({ type: TYPES.POSSIBLE_LOST_FUNDS, severity: "high" });
+    evidence.push("non_zero_value_with_zero_destination");
   }
 
   if (Array.isArray(tx.tokenTransfers) && tx.tokenTransfers.length > 0) {
     findings.push({ type: TYPES.TOKEN_TRANSFER, severity: "low" });
     evidence.push("token_transfer_data_present");
+  }
 
-    if (!tx.ownerVerified) {
-      findings.push({ type: TYPES.NEEDS_OWNERSHIP_VERIFICATION, severity: "medium" });
-      evidence.push("ownership_not_verified");
-    }
+  const ownerVerified = tx.ownerVerified === true;
+  if (findings.length > 0 && !ownerVerified) {
+    findings.push({ type: TYPES.NEEDS_OWNERSHIP_VERIFICATION, severity: "medium" });
+    evidence.push("ownership_or_recovery_authority_not_verified");
   }
 
   const confidence =
@@ -68,14 +61,20 @@ export function investigateTransaction(tx) {
     findings.some(f => f.severity === "medium") ? "medium" :
     findings.length ? "low" : "none";
 
+  const recoveryEligible =
+    ownerVerified === true &&
+    findings.length > 0 &&
+    !findings.some(f => f.type === TYPES.POSSIBLE_LOST_FUNDS && !tx.recoveryAuthorityVerified);
+
   return {
     hash: tx.hash ?? null,
     chain: tx.chain ?? null,
     findings,
     evidence,
     confidence,
-    ownershipStatus: tx.ownerVerified ? "verified" : "unknown",
-    recoveryStatus: "not_established"
+    ownershipStatus: ownerVerified ? "verified" : "unknown",
+    recoveryStatus: recoveryEligible ? "authorized_pending_execution" : "not_authorized",
+    recoveryEligible
   };
 }
 
