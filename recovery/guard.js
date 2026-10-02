@@ -29,6 +29,9 @@ export function evaluateRecoveryGate({
   if (!target) {
     reasons.push("authorized_destination_not_configured");
   }
+  if (caseData?.monetizationQueue === true && caseData?.recoveryEligible !== true) {
+    reasons.push("monetization_queue_requires_verified_recovery");
+  }
   if (!caseData?.recoveryEligible) {
     reasons.push("case_not_recovery_eligible");
   }

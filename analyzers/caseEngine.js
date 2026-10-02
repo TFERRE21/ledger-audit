@@ -83,7 +83,12 @@ export function investigateTransaction(tx) {
     confidence,
     ownershipStatus: ownerVerified ? "verified" : "unknown",
     recoveryStatus: recoveryEligible ? "authorized_pending_execution" : "not_authorized",
-    recoveryEligible
+    recoveryEligible,
+    ownerVerified,
+    recoveryAuthorityVerified: tx.recoveryAuthorityVerified === true,
+    recoveryMechanismVerified: tx.recoveryMechanismVerified === true,
+    recoveryMechanismType: tx.recoveryMechanismType ?? null,
+    monetizationQueue: recoveryEligible === true
   };
 }
 
