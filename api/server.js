@@ -57,6 +57,15 @@ const schemaReady = pool.query(`
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_scan_logs_chain_created ON scan_logs(chain, created_at DESC);
+  CREATE TABLE IF NOT EXISTS contract_findings (
+    id BIGSERIAL PRIMARY KEY, chain TEXT NOT NULL, address TEXT NOT NULL, block_number BIGINT,
+    eth_balance_wei TEXT NOT NULL DEFAULT '0', code_size_bytes INTEGER NOT NULL DEFAULT 0,
+    owner_address TEXT, admin_address TEXT, signals JSONB NOT NULL DEFAULT '[]'::jsonb,
+    method_signals JSONB NOT NULL DEFAULT '[]'::jsonb, evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
+    potential BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(chain,address)
+  );
+  CREATE INDEX IF NOT EXISTS idx_contract_findings_potential ON contract_findings(potential);
 `);
 
 async function queryDatabase(sql, params = []) {
@@ -205,6 +214,24 @@ async function handle(req, res) {
       res.end(JSON.stringify({ok:true,count:result.rows.length,opportunities:result.rows}));
     } catch {
       res.statusCode = 503;
+      res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
+    }
+    return;
+  }
+
+  if (pathname === "/api/contracts") {
+    try {
+      const result = await queryDatabase(`
+        SELECT id, chain, address, block_number, eth_balance_wei, code_size_bytes,
+               owner_address, admin_address, signals, method_signals, evidence,
+               potential, created_at, updated_at
+        FROM contract_findings
+        ORDER BY potential DESC, id DESC
+        LIMIT 200
+      `);
+      res.end(JSON.stringify({ok:true,count:result.rows.length,contracts:result.rows}));
+    } catch {
+      res.statusCode=503;
       res.end(JSON.stringify({ok:false,error:"database_unavailable"}));
     }
     return;
