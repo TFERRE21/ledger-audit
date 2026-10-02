@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { pool } from "../database/connection.js";
+import { rpcCall } from "../indexer/rpcClient.js";
 
 const port = Number(process.env.PORT || 3000);
 let scannerProcess = null;
@@ -127,6 +128,18 @@ async function handle(req, res) {
         FROM transactions
         WHERE observed_at >= NOW() - INTERVAL '60 seconds'
       `);
+      const opportunities = await queryDatabase(`
+        SELECT
+          COUNT(*) FILTER (WHERE findings @> '[{"type":"possible_lost_funds"}]'::jsonb) AS potential_opportunities,
+          COUNT(*) FILTER (WHERE recovery_status = 'authorized_pending_execution') AS authorized_opportunities
+        FROM investigation_cases
+      `);
+      let latestBlock = null;
+      try {
+        const hex = await rpcCall(process.env.RPC_URL, "eth_blockNumber", []);
+        latestBlock = Number.parseInt(hex, 16);
+      } catch {}
+      const firstActivityBlock = 46147;
       res.end(JSON.stringify({
         ok: true,
         process: scannerProcess ? "running" : "stopped",
@@ -137,7 +150,9 @@ async function handle(req, res) {
           monitor: String(process.env.MONITOR || "false").toLowerCase() === "true"
         },
         scanners: result.rows,
-        activity: latest.rows[0]
+        activity: latest.rows[0],
+        network: { latestBlock, firstActivityBlock },
+        opportunities: opportunities.rows[0]
       }));
     } catch {
       res.statusCode = 503;
