@@ -4,7 +4,6 @@ const TYPES = {
   MISSING_DESTINATION: "missing_destination",
   CONTRACT_INTERACTION: "contract_interaction",
   POSSIBLE_LOST_FUNDS: "possible_lost_funds",
-  TOKEN_TRANSFER: "token_transfer",
   NEEDS_OWNERSHIP_VERIFICATION: "needs_ownership_verification"
 };
 
@@ -40,18 +39,15 @@ export function investigateTransaction(tx) {
     evidence.push("non_empty_input_to_destination");
   }
 
-  if (tx.value && tx.value !== "0x0" && tx.value !== "0" && isZeroAddress(tx.to)) {
+  if (tx.status !== "failed" && tx.value && tx.value !== "0x0" && tx.value !== "0" && isZeroAddress(tx.to)) {
     findings.push({ type: TYPES.POSSIBLE_LOST_FUNDS, severity: "high" });
     evidence.push("non_zero_value_with_zero_destination");
   }
 
-  if (Array.isArray(tx.tokenTransfers) && tx.tokenTransfers.length > 0) {
-    findings.push({ type: TYPES.TOKEN_TRANSFER, severity: "low" });
-    evidence.push("token_transfer_data_present");
-  }
-
   const ownerVerified = tx.ownerVerified === true;
-  if (findings.length > 0 && !ownerVerified) {
+  const hasActionableFinding = findings.length > 0;
+
+  if (hasActionableFinding && !ownerVerified) {
     findings.push({ type: TYPES.NEEDS_OWNERSHIP_VERIFICATION, severity: "medium" });
     evidence.push("ownership_or_recovery_authority_not_verified");
   }
@@ -63,8 +59,9 @@ export function investigateTransaction(tx) {
 
   const recoveryEligible =
     ownerVerified === true &&
-    findings.length > 0 &&
-    !findings.some(f => f.type === TYPES.POSSIBLE_LOST_FUNDS && !tx.recoveryAuthorityVerified);
+    tx.recoveryAuthorityVerified === true &&
+    tx.recoveryMechanismVerified === true &&
+    hasActionableFinding;
 
   return {
     hash: tx.hash ?? null,
