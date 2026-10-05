@@ -1866,111 +1866,35 @@ async function handle(req, res) {
       const requestedLimit = Number(url.searchParams.get("limit") || 50);
       const limit = Math.min(50, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 50));
       const minEth = Math.max(1, Number(url.searchParams.get("minEth") || 1));
-      const minWei = minEth * 1000000000000000000;
+      const minWei = BigInt(Math.floor(minEth * 1e18));
 
       const result = await queryDatabase(`
         WITH eligible AS (
           SELECT tx_hash, block_number, from_address, to_address,
-                 (value::numeric) AS value_wei, observed_at
+                 value::numeric AS value_wei, observed_at
           FROM transactions
           WHERE value IS NOT NULL
-            AND value::text ~ '^[0-9]+(\\.[0-9]+)?
-    try {
-      const result = await queryDatabase(`
-        SELECT chain, tx_hash, block_number, from_address, to_address, value, status, gas_used, token_transfers, observed_at
-        FROM transactions
-        ORDER BY id DESC
-        LIMIT 100
-      `);
-      res.end(JSON.stringify({ ok: true, count: result.rows.length, transactions: result.rows }));
-    } catch (error) {
-      res.statusCode = 503;
-      res.end(JSON.stringify({ ok: false, error: error.code === "DB_NOT_CONFIGURED" ? "database_not_configured" : "database_unavailable" }));
-    }
-    return;
-  }
-
-  if (pathname === "/api/cases") {
-    try {
-      const result = await queryDatabase(`
-        SELECT id, chain, tx_hash, block_number, confidence, ownership_status, recovery_status,
-               findings, evidence, metadata, created_at, updated_at
-        FROM investigation_cases
-        ORDER BY id DESC
-        LIMIT 100
-      `);
-      res.end(JSON.stringify({ ok: true, count: result.rows.length, cases: result.rows }));
-    } catch (error) {
-      res.statusCode = 503;
-      res.end(JSON.stringify({ ok: false, error: error.code === "DB_NOT_CONFIGURED" ? "database_not_configured" : "database_unavailable" }));
-    }
-    return;
-  }
-
-  res.statusCode = 404;
-  res.end(JSON.stringify({ ok: false, error: "not_found" }));
-}
-
-const server = createServer((req, res) => {
-  handle(req, res).catch(() => {
-    res.statusCode = 500;
-    res.setHeader("content-type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ ok: false, error: "internal_error" }));
-  });
-});
-
-server.listen(port, "0.0.0.0", () => {
-  console.log(`ledger-audit listening on 0.0.0.0:${port}`);
-  void backfillOpportunityAuthorizationRequests().catch(error => {
-    console.error("[AUTHORIZATION_BACKFILL]", error.message);
-  });
-
-  try {
-    recoveryNotifier = startRecoveryChainNotifier({
-      onRequestCreated: handleRecoveryChainRequestCreated
-    });
-  } catch (error) {
-    console.error("[RECOVERY_NOTIFIER] startup failed:", error.message);
-  }
-
-  startScanner();
-});
-
-function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  if (scannerRestartTimer) {
-    clearTimeout(scannerRestartTimer);
-    scannerRestartTimer = null;
-  }
-  if (scannerProcess && !scannerProcess.killed) scannerProcess.kill("SIGTERM");
-  const stopNotifier = recoveryNotifier?.stop?.() || Promise.resolve();
-  server.close(() => stopNotifier.finally(() => pool.end().finally(() => process.exit(0))));
-}
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
-            AND value::numeric >= ${minWei}
+            AND value::text ~ '^[0-9]+(\\.[0-9]+)?$'
+            AND value::numeric >= ${minWei.toString()}
         ),
         participants AS (
-          SELECT from_address AS address, tx_hash, block_number, value_wei, value_wei AS outgoing_wei,
-                 0::numeric AS incoming_wei, observed_at
+          SELECT from_address AS address, tx_hash, block_number, value_wei,
+                 value_wei AS outgoing_wei, 0::numeric AS incoming_wei, observed_at
           FROM eligible
           WHERE from_address IS NOT NULL
           UNION ALL
-          SELECT to_address AS address, tx_hash, block_number, value_wei, 0::numeric AS outgoing_wei,
-                 value_wei AS incoming_wei, observed_at
+          SELECT to_address AS address, tx_hash, block_number, value_wei,
+                 0::numeric AS outgoing_wei, value_wei AS incoming_wei, observed_at
           FROM eligible
           WHERE to_address IS NOT NULL
         )
-        SELECT
-          address,
-          COUNT(DISTINCT tx_hash)::bigint AS transaction_count,
-          SUM(value_wei)::numeric AS volume_wei,
-          SUM(incoming_wei)::numeric AS incoming_wei,
-          SUM(outgoing_wei)::numeric AS outgoing_wei,
-          MAX(block_number)::bigint AS last_block,
-          MAX(observed_at) AS last_activity
+        SELECT address,
+               COUNT(DISTINCT tx_hash)::bigint AS transaction_count,
+               SUM(value_wei)::numeric AS volume_wei,
+               SUM(incoming_wei)::numeric AS incoming_wei,
+               SUM(outgoing_wei)::numeric AS outgoing_wei,
+               MAX(block_number)::bigint AS last_block,
+               MAX(observed_at) AS last_activity
         FROM participants
         WHERE address <> ''
         GROUP BY address
@@ -1988,13 +1912,7 @@ process.on("SIGINT", shutdown);
         last_block: row.last_block,
         last_activity: row.last_activity
       }));
-      res.end(JSON.stringify({
-        ok: true,
-        limit,
-        min_eth: minEth,
-        count: wallets.length,
-        wallets
-      }));
+      res.end(JSON.stringify({ ok: true, limit, min_eth: minEth, count: wallets.length, wallets }));
     } catch (error) {
       console.error("[TOP_WALLETS]", error.message);
       res.statusCode = 503;
