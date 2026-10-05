@@ -1456,7 +1456,6 @@ async function handle(req, res) {
                status, gas_used, observed_at
         FROM transactions
         WHERE LOWER(from_address) = LOWER($1)
-           OR LOWER(to_address) = LOWER($1)
         ORDER BY observed_at DESC NULLS LAST, block_number DESC NULLS LAST
         LIMIT 1
       `, [owner]);
