@@ -348,6 +348,13 @@ async function handle(req, res) {
   }
 
   if (pathname === "/") {
+    res.statusCode = 302;
+    res.setHeader("location", "/dashboard");
+    res.end();
+    return;
+  }
+
+  if (pathname === "/api") {
     res.end(JSON.stringify({
       service: "ledger-audit",
       status: "online",
