@@ -67,6 +67,19 @@ const short=(v,n=12)=>v?v.slice(0,n)+"…"+v.slice(-6):"—";
 const mask=v=>v?v.slice(0,10)+"…"+v.slice(-8):"não configurada";
 const esc=v=>String(v??"—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 const fmt=v=>Number(v||0).toLocaleString("pt-BR");
+function txValueToEth(v){
+  if(v===null||v===undefined||String(v).trim()==="") return 0;
+  const s=String(v).trim();
+  if(/^-?\d+$/.test(s)){
+    try{
+      const n=BigInt(s);
+      if(n<0n) return Number(n)/1e18;
+      return n>=1000000000000000n ? Number(n)/1e18 : Number(n);
+    }catch{return Number(s)||0;}
+  }
+  const n=Number(s);
+  return Number.isFinite(n)?n:0;
+}
 const registry={cases:new Map(),contracts:new Map()};
 
 function closeModal(){ $("modal").classList.remove("show"); }
@@ -336,7 +349,7 @@ async function load(){
         const label=s==="authorized"?"APROVADA":s==="rejected"?"RECUSADA":s==="expired"?"EXPIRADA":s==="pending"?"PENDENTE":"CONFIRMADA";
         const cls=s==="authorized"?"ok":s==="rejected"||s==="expired"?"high":"medium";
         const mv=movementDetails[i];
-        const mvValue=mv&&mv.value!=null?Number(mv.value):0;
+        const mvValue=mv&&mv.value!=null?txValueToEth(mv.value):0;
         const isIn=mv&&String(mv.to_address||"").toLowerCase()===String(x.owner_address||"").toLowerCase();
         const moveDate=mv&&mv.observed_at?new Date(mv.observed_at).toLocaleString("pt-BR"):"Nenhuma movimentação do proprietário encontrada";
         return '<div class="pubCard"><div class="top"><b>#'+(i+1)+' • Request '+esc(x.onchain_request_id)+'</b><span class="status '+cls+'">'+label+'</span></div><div class="eth">'+eth.toLocaleString("pt-BR",{minimumFractionDigits:6,maximumFractionDigits:18})+' ETH</div><div class="line"><span>Caso</span><b>'+esc(x.case_id)+'</b></div><div class="line"><span>Proprietário</span><span class="mono">'+esc(short(x.owner_address,14))+'</span></div><div class="line"><span>USD</span><b>'+(priceEthUsd>0?usd.toLocaleString("en-US",{style:"currency",currency:"USD"}):"—")+'</b></div><div class="line"><span>BRL</span><b>'+(priceEthBrl>0?brl.toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):"—")+'</b></div><div class="line"><span>TX</span><span class="mono">'+esc(short(x.onchain_tx_hash||"",16))+'</span></div><div class="lastMove"><div class="lastMoveTitle">🕒 MOVIMENTAÇÃO DO PROPRIETÁRIO RELACIONADA À SOLICITAÇÃO</div>'+ (mv?'<div class="lastMoveGrid"><span>Relação</span><b>'+esc(mv.relation==="ANTES"?"ANTERIOR À SOLICITAÇÃO":"POSTERIOR À SOLICITAÇÃO")+'</b><span>Data/hora</span><b>'+esc(moveDate)+'</b><span>Quantidade</span><b>'+mvValue.toLocaleString("pt-BR",{minimumFractionDigits:6,maximumFractionDigits:18})+' ETH</b><span>Valor em R$</span><b>'+ (priceEthBrl>0?(mvValue*priceEthBrl).toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):"R$ —") +'</b><span>Transação</span><b class="mono">'+esc(short(mv.tx_hash,18))+'</b><span>Bloco</span><b>'+esc(mv.block_number||"—")+'</b></div>':'<span class="lastMoveNone">Nenhuma movimentação do proprietário encontrada antes ou depois da solicitação.</span>') +'</div></div>';
