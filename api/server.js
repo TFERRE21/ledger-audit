@@ -165,6 +165,7 @@ async function backfillOpportunityAuthorizationRequests() {
   `);
 
   let created = 0;
+  let retargeted = 0;
   let skippedWithoutOwner = 0;
   let skippedExisting = 0;
   for (const row of result.rows) {
@@ -199,6 +200,7 @@ async function backfillOpportunityAuthorizationRequests() {
       FROM recovery_authorizations
       WHERE case_id = $1
         AND status IN ('pending','authorized','submitted_pending_confirmation')
+      ORDER BY id DESC
       LIMIT 1
     `, [row.id]);
 
@@ -225,14 +227,22 @@ async function backfillOpportunityAuthorizationRequests() {
           expiresAt: expiresAt.toISOString(),
           nonce
         });
-        await queryDatabase(`
+        const updated = await queryDatabase(`
           UPDATE recovery_authorizations
           SET destination = $1,
               nonce = $2,
               message = $3,
               expires_at = $4
           WHERE id = $5
+            AND status = 'pending'
+            AND onchain_request_id IS NULL
+          RETURNING id, destination, nonce, expires_at
         `, [destination, nonce, message, expiresAt, current.id]);
+
+        if (updated.rows.length) {
+          retargeted++;
+          continue;
+        }
       }
       skippedExisting++;
       continue;
@@ -267,6 +277,7 @@ async function backfillOpportunityAuthorizationRequests() {
 
   const summary = {
     created,
+    retargeted,
     candidates: result.rows.length,
     skippedWithoutOwner,
     skippedExisting,
