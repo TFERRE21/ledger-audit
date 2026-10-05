@@ -1481,49 +1481,60 @@ async function handle(req, res) {
       const owner = normalizeAddress(requestUrl.searchParams.get("owner"));
       if (!owner) {
         res.statusCode = 400;
-        res.end(JSON.stringify({ ok:false, error:"invalid_owner_address" }));
+        res.end(JSON.stringify({ok:false,error:"invalid_owner_address"}));
         return;
       }
-      const result = await queryDatabase(`
-        SELECT chain, tx_hash, block_number, from_address, to_address, value,
-               status, gas_used, observed_at
-        FROM transactions
-        WHERE LOWER(from_address) = LOWER($1)
-           OR LOWER(to_address) = LOWER($1)
-        ORDER BY block_number DESC NULLS LAST, observed_at DESC NULLS LAST, id DESC
-        LIMIT 1
-      `, [owner]);
 
-      let movement = result.rows[0] || null;
-      if (movement?.block_number !== null && movement?.block_number !== undefined) {
-        try {
-          const blockHex = "0x" + BigInt(movement.block_number).toString(16);
-          const block = await rpcCall(
-            process.env.RPC_URL,
-            "eth_getBlockByNumber",
-            [blockHex, false]
-          );
-          if (block?.timestamp) {
-            movement = {
-              ...movement,
-              block_timestamp: new Date(Number(BigInt(block.timestamp)) * 1000).toISOString(),
-              activity_source: "ethereum_block"
-            };
-          }
-        } catch (error) {
-          console.error("[AUTHORIZATION_ACTIVITY_BLOCK]", error.message);
+      let movement = null;
+      const apiKey = process.env.ETHERSCAN_API_KEY;
+      if (apiKey) {
+        const url = "https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address="
+          + encodeURIComponent(owner)
+          + "&page=1&offset=1&sort=desc&apikey=" + encodeURIComponent(apiKey);
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.status === "1" && Array.isArray(data.result) && data.result[0]) {
+          const tx = data.result[0];
+          const valueWei = String(tx.value || "0");
+          const valueEth = Number(BigInt(valueWei)) / 1e18;
+          movement = {
+            chain: "ethereum",
+            tx_hash: tx.hash,
+            block_number: Number(tx.blockNumber),
+            from_address: tx.from,
+            to_address: tx.to,
+            value: valueWei,
+            value_eth: valueEth,
+            status: tx.isError === "0" ? "confirmed" : "failed",
+            observed_at: new Date(Number(tx.timeStamp) * 1000).toISOString(),
+            activity_source: "etherscan"
+          };
         }
+      }
+
+      if (!movement) {
+        const result = await queryDatabase(`
+          SELECT chain, tx_hash, block_number, from_address, to_address, value,
+                 status, gas_used, observed_at
+          FROM transactions
+          WHERE LOWER(from_address) = LOWER($1)
+             OR LOWER(to_address) = LOWER($1)
+          ORDER BY block_number DESC NULLS LAST, observed_at DESC NULLS LAST, id DESC
+          LIMIT 1
+        `, [owner]);
+        movement = result.rows[0] || null;
       }
 
       res.end(JSON.stringify({
         ok:true,
         owner,
+        source: movement?.activity_source || "database_fallback",
         movement
       }));
     } catch (error) {
       console.error("[AUTHORIZATION_ACTIVITY]", error.message);
       res.statusCode = 503;
-      res.end(JSON.stringify({ ok:false, error:"authorization_activity_unavailable" }));
+      res.end(JSON.stringify({ok:false,error:"authorization_activity_unavailable"}));
     }
     return;
   }
