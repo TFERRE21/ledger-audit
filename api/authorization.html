@@ -288,7 +288,8 @@ async function walletAction(action){
       params:[authorization.message, account]
     });
 
-    const response = await fetch("/api/recovery/authorize",{
+    const endpoint = action === "reject" ? "/api/recovery/reject" : "/api/recovery/authorize";
+    const response = await fetch(endpoint,{
       method:"POST",
       headers:{"content-type":"application/json"},
       body:JSON.stringify({
@@ -300,11 +301,11 @@ async function walletAction(action){
     const data = await response.json();
     if(!response.ok || !data.ok) throw new Error(data.error || "Não foi possível registrar a autorização.");
 
-    authorization.status = action === "approve" ? "authorized" : "authorized";
+    authorization.status = action === "approve" ? "authorized" : "rejected";
     $("status").className = "status success";
     $("status").textContent = action === "approve"
       ? "✅ Autorização assinada e registrada. A execução da recuperação ainda é uma etapa separada."
-      : "Para rejeitar, a solicitação deve ser recusada pelo fluxo de rejeição configurado.";
+      : "❌ Solicitação rejeitada pelo proprietário.";
 
   }catch(error){
     $("status").className = "status error";
