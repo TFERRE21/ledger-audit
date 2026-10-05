@@ -7,6 +7,7 @@ import { rpcCall } from "../indexer/rpcClient.js";
 import { ethers } from "ethers";
 import { createOnChainRecoveryRequest, getRecoveryRegistryReadContract, isRecoveryRegistryConfigured } from "../blockchain/recoveryRegistry.js";
 import { startRecoveryChainNotifier } from "../blockchain/recoveryNotifier.js";
+import { createOnChainRecoveryNotification, isRecoveryNotificationRegistryConfigured } from "../blockchain/recoveryNotificationRegistry.js";
 import {
   buildOwnerAuthorizationMessage,
   verifyOwnerAuthorization
@@ -90,6 +91,10 @@ const schemaReady = pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_recovery_notifications_owner
     ON recovery_notifications(owner_address, created_at DESC);
+  ALTER TABLE recovery_notifications
+    ADD COLUMN IF NOT EXISTS onchain_notification_id TEXT;
+  ALTER TABLE recovery_notifications
+    ADD COLUMN IF NOT EXISTS onchain_tx_hash TEXT;
   CREATE TABLE IF NOT EXISTS scan_progress (
     chain TEXT PRIMARY KEY,
     next_block BIGINT NOT NULL DEFAULT 0,
@@ -1510,6 +1515,53 @@ async function handle(req, res) {
              WHERE id = $3`,
             [onChain.requestId, onChain.txHash, row.id]
           );
+
+          if (isRecoveryNotificationRegistryConfigured()) {
+            try {
+              const metadata = safeMetadata(row.metadata);
+              const amountWei = metadata.amountWei
+                ? BigInt(metadata.amountWei).toString()
+                : "0";
+              const amountEth = Number(BigInt(amountWei)) / 1e18;
+              const notification = await createOnChainRecoveryNotification({
+                owner: row.owner_address,
+                requestId: onChain.requestId,
+                caseId: row.case_id,
+                chainId: Number(process.env.RECOVERY_REGISTRY_CHAIN_ID || 1),
+                amountWei,
+                destination: row.destination,
+                expiresAt: row.expires_at,
+                message: `Solicitação de recuperação #${onChain.requestId}: confira e autorize somente se você for o proprietário. Valor: ${amountEth} ETH.`
+              });
+
+              await queryDatabase(
+                `INSERT INTO recovery_notifications
+                  (request_id, authorization_id, owner_address, case_id, chain_id, amount_wei,
+                   destination, expires_at, tx_hash, onchain_notification_id, onchain_tx_hash)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                 ON CONFLICT (request_id) DO UPDATE
+                 SET authorization_id = EXCLUDED.authorization_id,
+                     onchain_notification_id = EXCLUDED.onchain_notification_id,
+                     onchain_tx_hash = EXCLUDED.onchain_tx_hash`,
+                [
+                  onChain.requestId,
+                  row.id,
+                  row.owner_address.toLowerCase(),
+                  row.case_id,
+                  Number(process.env.RECOVERY_REGISTRY_CHAIN_ID || 1).toString(),
+                  amountWei,
+                  row.destination.toLowerCase(),
+                  row.expires_at,
+                  onChain.txHash,
+                  notification.notificationId,
+                  notification.txHash
+                ]
+              );
+            } catch (notificationError) {
+              console.error("[AUTHORIZATION_ONCHAIN_NOTIFICATION]", row.id, notificationError.message);
+            }
+          }
+
           published++;
         } catch (error) {
           console.error("[AUTHORIZATION_ONCHAIN_PUBLISH_ITEM]", row.id, error.message);
@@ -1659,7 +1711,8 @@ async function handle(req, res) {
         }
         result = await queryDatabase(`
           SELECT id, request_id, authorization_id, owner_address, case_id, chain_id,
-                 amount_wei, destination, expires_at, tx_hash, block_number, status, created_at, read_at
+                 amount_wei, destination, expires_at, tx_hash, block_number,
+                 onchain_notification_id, onchain_tx_hash, status, created_at, read_at
           FROM recovery_notifications
           WHERE LOWER(owner_address) = LOWER($1)
           ORDER BY created_at DESC
