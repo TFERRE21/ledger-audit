@@ -328,11 +328,21 @@ async function handle(req, res) {
   res.setHeader("content-type", "application/json; charset=utf-8");
 
   if (pathname === "/health") {
+    let database = "unknown";
+    try {
+      await queryDatabase("SELECT 1");
+      database = "online";
+    } catch {
+      database = "offline";
+    }
+
     res.end(JSON.stringify({
-      ok: true,
+      ok: database === "online",
       service: "ledger-audit",
       environment: process.env.NODE_ENV || "development",
-      scannerProcess: scannerProcess ? "running" : (scannerRestartTimer ? "restarting" : "stopped")
+      uptimeSeconds: Math.floor(process.uptime()),
+      scannerProcess: scannerProcess ? "running" : (scannerRestartTimer ? "restarting" : "stopped"),
+      database
     }));
     return;
   }
@@ -342,7 +352,22 @@ async function handle(req, res) {
       service: "ledger-audit",
       status: "online",
       dashboard: "/dashboard",
-      endpoints: ["/health", "/api/stats", "/api/balances", "/api/transactions", "/api/cases", "/api/scanner/status"]
+      endpoints: [
+        "/health",
+        "/api/stats",
+        "/api/balances",
+        "/api/transactions",
+        "/api/cases",
+        "/api/scanner/status",
+        "/api/scanner/logs",
+        "/api/opportunities",
+        "/api/contracts",
+        "/api/prices",
+        "/api/recovery",
+        "/api/recovery/summary",
+        "/api/recovery/events",
+        "/api/recovery/authorizations"
+      ]
     }));
     return;
   }
