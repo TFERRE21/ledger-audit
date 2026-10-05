@@ -637,6 +637,39 @@ async function handle(req, res) {
   }
 
 
+  if (pathname === "/api/recovery/reject" && req.method === "POST") {
+    try {
+      const body = await readJsonBody(req);
+      const authorizationId = Number(body.authorization_id);
+      const signature = String(body.signature || "").trim();
+      const ownerAddress = normalizeAddress(body.owner_address);
+      if (!Number.isInteger(authorizationId) || authorizationId <= 0 || !signature) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ok:false,error:"invalid_rejection_request"}));
+        return;
+      }
+      const result = await queryDatabase(`
+        SELECT id, case_id, owner_address, message, status, expires_at
+        FROM recovery_authorizations WHERE id = $1 LIMIT 1
+      `, [authorizationId]);
+      const authorization=result.rows[0];
+      if(!authorization){res.statusCode=404;res.end(JSON.stringify({ok:false,error:"authorization_not_found"}));return;}
+      if(authorization.status!=="pending"){res.statusCode=409;res.end(JSON.stringify({ok:false,error:"authorization_not_pending",status:authorization.status}));return;}
+      if(new Date(authorization.expires_at).getTime()<=Date.now()){res.statusCode=410;res.end(JSON.stringify({ok:false,error:"authorization_expired"}));return;}
+      if(!ownerAddress || ownerAddress !== String(authorization.owner_address).toLowerCase()){res.statusCode=403;res.end(JSON.stringify({ok:false,error:"owner_address_mismatch"}));return;}
+      const verification=verifyOwnerAuthorization(authorization.message,signature,authorization.owner_address);
+      if(!verification.valid){res.statusCode=403;res.end(JSON.stringify({ok:false,error:"invalid_owner_signature"}));return;}
+      await queryDatabase(`UPDATE recovery_authorizations SET signature=$1,status='rejected',authorized_at=NULL WHERE id=$2`,[signature,authorizationId]);
+      await queryDatabase(`UPDATE recovery_events SET status='blocked',reason='owner_rejected_authorization',updated_at=NOW() WHERE case_id=$1 AND status IN ('blocked','pending','authorized_pending_execution')`,[authorization.case_id]);
+      res.end(JSON.stringify({ok:true,status:"rejected",authorizationId}));
+    } catch(error) {
+      console.error("[AUTHORIZATION_REJECT]",error);
+      res.statusCode=500;
+      res.end(JSON.stringify({ok:false,error:"authorization_rejection_failed"}));
+    }
+    return;
+  }
+
   if (pathname === "/api/recovery/authorization/create" && req.method === "POST") {
     try {
       const body = await readJsonBody(req);
