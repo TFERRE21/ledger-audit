@@ -133,14 +133,19 @@ async function handleRecoveryChainRequestCreated(event) {
   const destination = normalizeAddress(event.destination);
   if (!owner || !destination) return;
 
-  const authorizationResult = await queryDatabase(`
-    SELECT id, case_id
-    FROM recovery_authorizations
-    WHERE onchain_request_id = $1
-    LIMIT 1
-  `, [event.requestId]);
-
-  const authorization = authorizationResult.rows[0] || null;
+  let authorization = null;
+  for (let attempt = 0; attempt < 5 && !authorization; attempt++) {
+    const authorizationResult = await queryDatabase(`
+      SELECT id, case_id
+      FROM recovery_authorizations
+      WHERE onchain_request_id = $1
+      LIMIT 1
+    `, [event.requestId]);
+    authorization = authorizationResult.rows[0] || null;
+    if (!authorization && attempt < 4) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
 
   const inserted = await queryDatabase(`
     INSERT INTO recovery_notifications
