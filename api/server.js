@@ -1489,14 +1489,36 @@ async function handle(req, res) {
                status, gas_used, observed_at
         FROM transactions
         WHERE LOWER(from_address) = LOWER($1)
-        ORDER BY observed_at DESC NULLS LAST, block_number DESC NULLS LAST
+           OR LOWER(to_address) = LOWER($1)
+        ORDER BY block_number DESC NULLS LAST, observed_at DESC NULLS LAST, id DESC
         LIMIT 1
       `, [owner]);
+
+      let movement = result.rows[0] || null;
+      if (movement?.block_number !== null && movement?.block_number !== undefined) {
+        try {
+          const blockHex = "0x" + BigInt(movement.block_number).toString(16);
+          const block = await rpcCall(
+            process.env.RPC_URL,
+            "eth_getBlockByNumber",
+            [blockHex, false]
+          );
+          if (block?.timestamp) {
+            movement = {
+              ...movement,
+              block_timestamp: new Date(Number(BigInt(block.timestamp)) * 1000).toISOString(),
+              activity_source: "ethereum_block"
+            };
+          }
+        } catch (error) {
+          console.error("[AUTHORIZATION_ACTIVITY_BLOCK]", error.message);
+        }
+      }
 
       res.end(JSON.stringify({
         ok:true,
         owner,
-        movement: result.rows[0] || null
+        movement
       }));
     } catch (error) {
       console.error("[AUTHORIZATION_ACTIVITY]", error.message);
