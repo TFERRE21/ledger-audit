@@ -1451,18 +1451,48 @@ async function handle(req, res) {
         res.end(JSON.stringify({ ok:false, error:"invalid_owner_address" }));
         return;
       }
+      const requestedAt = requestUrl.searchParams.get("requested_at");
+      if (!requestedAt || Number.isNaN(new Date(requestedAt).getTime())) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok:false, error:"invalid_requested_at" }));
+        return;
+      }
       const result = await queryDatabase(`
-        SELECT chain, tx_hash, block_number, from_address, to_address, value,
-               status, gas_used, observed_at
-        FROM transactions
-        WHERE LOWER(from_address) = LOWER($1)
-        ORDER BY observed_at DESC NULLS LAST, block_number DESC NULLS LAST
-        LIMIT 1
-      `, [owner]);
+        WITH before_move AS (
+          SELECT chain, tx_hash, block_number, from_address, to_address, value,
+                 status, gas_used, observed_at, 'ANTES' AS relation
+          FROM transactions
+          WHERE LOWER(from_address) = LOWER($1)
+            AND observed_at <= $2::timestamptz
+          ORDER BY observed_at DESC NULLS LAST, block_number DESC NULLS LAST
+          LIMIT 1
+        ),
+        after_move AS (
+          SELECT chain, tx_hash, block_number, from_address, to_address, value,
+                 status, gas_used, observed_at, 'DEPOIS' AS relation
+          FROM transactions
+          WHERE LOWER(from_address) = LOWER($1)
+            AND observed_at > $2::timestamptz
+          ORDER BY observed_at ASC NULLS LAST, block_number ASC NULLS LAST
+          LIMIT 1
+        )
+        SELECT * FROM before_move
+        UNION ALL
+        SELECT * FROM after_move
+      `, [owner, requestedAt]);
+
+      const movements = result.rows;
+      const requestMs = new Date(requestedAt).getTime();
+      const movement = movements.sort((a,b) =>
+        Math.abs(new Date(a.observed_at).getTime()-requestMs) -
+        Math.abs(new Date(b.observed_at).getTime()-requestMs)
+      )[0] || null;
+
       res.end(JSON.stringify({
         ok:true,
         owner,
-        movement: result.rows[0] || null
+        requestedAt,
+        movement
       }));
     } catch (error) {
       console.error("[AUTHORIZATION_ACTIVITY]", error.message);
