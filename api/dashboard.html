@@ -50,7 +50,13 @@
 <div id="published12Screen" class="screen">
 <div class="screenHead"><div><h2 style="margin:0">⛓️ Recuperações na Blockchain</h2><div class="muted">As 12 primeiras solicitações publicadas, com rastreamento de valor potencial.</div></div><button class="screenClose" onclick="closePublished12Screen()">← Voltar ao painel</button></div>
 <div class="screenBody">
-<div class="screenTotal"><div class="card"><div class="label">TOTAL POTENCIAL</div><div id="screenPubEth" class="value">0 ETH</div></div><div class="card"><div class="label">VALOR EM DÓLAR</div><div id="screenPubUsd" class="value">US$ 0,00</div></div><div class="card"><div class="label">VALOR EM REAL</div><div id="screenPubBrl" class="value">R$ 0,00</div></div></div>
+<div class="screenTotal">
+<div class="card"><div class="label">TOTAL POTENCIAL</div><div id="screenPubEth" class="value">0 ETH</div></div>
+<div class="card"><div class="label">VALOR EM DÓLAR</div><div id="screenPubUsd" class="value">US$ 0,00</div></div>
+<div class="card"><div class="label">VALOR EM REAL</div><div id="screenPubBrl" class="value">R$ 0,00</div></div>
+<div class="card"><div class="label">✅ JÁ APROVADOS</div><div id="screenApprovedBrl" class="value">R$ 0,00</div><div class="muted">solicitações aprovadas</div></div>
+<div class="card"><div class="label">➡️ DIRECIONADOS AO DESTINO</div><div id="screenDirectedBrl" class="value">R$ 0,00</div><div class="muted">execuções confirmadas</div></div>
+</div>
 <div id="screenPubMeta" class="muted" style="margin-bottom:14px">Carregando...</div>
 <div id="published12Cards" class="pubCards"></div>
 </div></div>
@@ -327,6 +333,12 @@ async function load(){
       $("screenPubUsd").textContent=$("pub12Usd").textContent;
       $("screenPubBrl").textContent=$("pub12Brl").textContent;
       $("screenPubMeta").textContent=$("pub12Meta").textContent;
+    const approvedWei=pub12Details.filter(x=>String(x.status)==="authorized").reduce((sum,x)=>sum+authAmountWei(x),0n);
+    const directedWei=pub12Details.filter(x=>["confirmed","completed"].includes(String(x.status))).reduce((sum,x)=>sum+authAmountWei(x),0n);
+    const approvedEth=formatEthWei(approvedWei), directedEth=formatEthWei(directedWei);
+    $("screenApprovedBrl").textContent=priceEthBrl>0?(approvedEth*priceEthBrl).toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):"R$ —";
+    $("screenDirectedBrl").textContent=priceEthBrl>0?(directedEth*priceEthBrl).toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):"R$ —";
+
     };
     renderPublished12Cards();
 
