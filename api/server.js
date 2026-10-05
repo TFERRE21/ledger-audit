@@ -1475,9 +1475,22 @@ async function handle(req, res) {
         LIMIT $1
       `, [limit]);
 
+      const counts = await queryDatabase(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'pending' AND onchain_request_id IS NULL) AS pending,
+          COUNT(*) FILTER (WHERE status = 'pending' AND onchain_request_id IS NOT NULL) AS sent,
+          COUNT(*) FILTER (WHERE status = 'authorized') AS approved,
+          COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,
+          COUNT(*) FILTER (WHERE status = 'expired') AS expired,
+          COUNT(*) FILTER (WHERE status IN ('confirmed', 'completed')) AS confirmed,
+          COUNT(*) AS total
+        FROM recovery_authorizations
+      `);
+
       res.end(JSON.stringify({
         ok: true,
-        authorizations: result.rows
+        authorizations: result.rows,
+        counts: counts.rows[0]
       }));
     } catch (error) {
       console.error("[AUTHORIZATIONS_LIST]", error);
