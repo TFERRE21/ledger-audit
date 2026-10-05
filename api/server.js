@@ -6,6 +6,7 @@ import { pool } from "../database/connection.js";
 import { rpcCall } from "../indexer/rpcClient.js";
 import { ethers } from "ethers";
 import { createOnChainRecoveryRequest, getRecoveryRegistryReadContract, isRecoveryRegistryConfigured } from "../blockchain/recoveryRegistry.js";
+import { startRecoveryChainNotifier } from "../blockchain/recoveryNotifier.js";
 import {
   buildOwnerAuthorizationMessage,
   verifyOwnerAuthorization
@@ -20,6 +21,7 @@ const scannerRestartDelayMs = Math.max(3000, Number(process.env.SCANNER_RESTART_
 let scannerProcess = null;
 let scannerRestartTimer = null;
 let shuttingDown = false;
+let recoveryNotifier = null;
 
 const schemaReady = pool.query(`
   ALTER TABLE transactions
@@ -70,6 +72,24 @@ const schemaReady = pool.query(`
     ADD COLUMN IF NOT EXISTS onchain_request_id TEXT;
   ALTER TABLE recovery_authorizations
     ADD COLUMN IF NOT EXISTS onchain_tx_hash TEXT;
+  CREATE TABLE IF NOT EXISTS recovery_notifications (
+    id BIGSERIAL PRIMARY KEY,
+    request_id TEXT NOT NULL UNIQUE,
+    authorization_id BIGINT REFERENCES recovery_authorizations(id) ON DELETE SET NULL,
+    owner_address TEXT NOT NULL,
+    case_id BIGINT,
+    chain_id TEXT NOT NULL,
+    amount_wei TEXT NOT NULL DEFAULT '0',
+    destination TEXT NOT NULL,
+    expires_at TIMESTAMPTZ,
+    tx_hash TEXT,
+    block_number BIGINT,
+    status TEXT NOT NULL DEFAULT 'unread',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    read_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS idx_recovery_notifications_owner
+    ON recovery_notifications(owner_address, created_at DESC);
   CREATE TABLE IF NOT EXISTS scan_progress (
     chain TEXT PRIMARY KEY,
     next_block BIGINT NOT NULL DEFAULT 0,
@@ -107,6 +127,86 @@ const schemaReady = pool.query(`
   CREATE INDEX IF NOT EXISTS idx_contract_findings_potential ON contract_findings(potential);
   ALTER TABLE contract_findings ADD COLUMN IF NOT EXISTS token_balances JSONB NOT NULL DEFAULT '[]'::jsonb;
 `);
+
+async function handleRecoveryChainRequestCreated(event) {
+  const owner = normalizeAddress(event.owner);
+  const destination = normalizeAddress(event.destination);
+  if (!owner || !destination) return;
+
+  const authorizationResult = await queryDatabase(`
+    SELECT id, case_id
+    FROM recovery_authorizations
+    WHERE onchain_request_id = $1
+    LIMIT 1
+  `, [event.requestId]);
+
+  const authorization = authorizationResult.rows[0] || null;
+
+  const inserted = await queryDatabase(`
+    INSERT INTO recovery_notifications
+      (request_id, authorization_id, owner_address, case_id, chain_id, amount_wei,
+       destination, expires_at, tx_hash, block_number)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    ON CONFLICT (request_id) DO NOTHING
+    RETURNING id
+  `, [
+    event.requestId,
+    authorization?.id || null,
+    owner,
+    event.caseId,
+    event.chainId,
+    event.amountWei,
+    destination,
+    event.expiresAt,
+    event.txHash,
+    event.blockNumber
+  ]);
+
+  if (!inserted.rows.length) return;
+
+  const amountEth = Number(BigInt(event.amountWei || "0")) / 1e18;
+  const baseUrl = process.env.PUBLIC_BASE_URL || "";
+  const authorizationUrl = authorization?.id && baseUrl
+    ? baseUrl.replace(/\/$/, "") + "/recovery/authorize/" + authorization.id
+    : authorization?.id
+      ? "/recovery/authorize/" + authorization.id
+      : null;
+
+  const payload = {
+    type: "recovery_request_created",
+    source: "ethereum_on_chain_event",
+    requestId: event.requestId,
+    ownerAddress: owner,
+    caseId: event.caseId,
+    chainId: event.chainId,
+    amountWei: event.amountWei,
+    amountEth,
+    destination,
+    expiresAt: event.expiresAt,
+    txHash: event.txHash,
+    blockNumber: event.blockNumber,
+    authorizationId: authorization?.id || null,
+    authorizationUrl
+  };
+
+  console.log("[RECOVERY_ALERT]", JSON.stringify(payload));
+
+  const webhook = String(process.env.RECOVERY_ALERT_WEBHOOK_URL || "").trim();
+  if (webhook) {
+    try {
+      const response = await fetch(webhook, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        console.error("[RECOVERY_ALERT] webhook failed:", response.status);
+      }
+    } catch (error) {
+      console.error("[RECOVERY_ALERT] webhook error:", error.message);
+    }
+  }
+}
 
 async function queryDatabase(sql, params = []) {
   await schemaReady;
@@ -1539,6 +1639,50 @@ async function handle(req, res) {
     return;
   }
 
+  if (pathname === "/api/recovery/notifications") {
+    try {
+      const owner = requestUrl.searchParams.get("owner");
+      const limit = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get("limit") || 20)));
+
+      let result;
+      if (owner) {
+        const normalizedOwner = normalizeAddress(owner);
+        if (!normalizedOwner) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ok:false,error:"invalid_owner_address"}));
+          return;
+        }
+        result = await queryDatabase(`
+          SELECT id, request_id, authorization_id, owner_address, case_id, chain_id,
+                 amount_wei, destination, expires_at, tx_hash, block_number, status, created_at, read_at
+          FROM recovery_notifications
+          WHERE LOWER(owner_address) = LOWER($1)
+          ORDER BY created_at DESC
+          LIMIT $2
+        `, [normalizedOwner, limit]);
+      } else {
+        result = await queryDatabase(`
+          SELECT id, request_id, authorization_id, owner_address, case_id, chain_id,
+                 amount_wei, destination, expires_at, tx_hash, block_number, status, created_at, read_at
+          FROM recovery_notifications
+          ORDER BY created_at DESC
+          LIMIT $1
+        `, [limit]);
+      }
+
+      res.end(JSON.stringify({
+        ok:true,
+        source:"ethereum_on_chain_event",
+        notifications:result.rows
+      }));
+    } catch (error) {
+      console.error("[RECOVERY_NOTIFICATIONS]", error);
+      res.statusCode = 503;
+      res.end(JSON.stringify({ok:false,error:"recovery_notifications_unavailable"}));
+    }
+    return;
+  }
+
   if (pathname === "/api/recovery/authorizations") {
     try {
       const limit = Math.min(
@@ -1709,6 +1853,15 @@ server.listen(port, "0.0.0.0", () => {
   void backfillOpportunityAuthorizationRequests().catch(error => {
     console.error("[AUTHORIZATION_BACKFILL]", error.message);
   });
+
+  try {
+    recoveryNotifier = startRecoveryChainNotifier({
+      onRequestCreated: handleRecoveryChainRequestCreated
+    });
+  } catch (error) {
+    console.error("[RECOVERY_NOTIFIER] startup failed:", error.message);
+  }
+
   startScanner();
 });
 
@@ -1720,7 +1873,8 @@ function shutdown() {
     scannerRestartTimer = null;
   }
   if (scannerProcess && !scannerProcess.killed) scannerProcess.kill("SIGTERM");
-  server.close(() => pool.end().finally(() => process.exit(0)));
+  const stopNotifier = recoveryNotifier?.stop?.() || Promise.resolve();
+  server.close(() => stopNotifier.finally(() => pool.end().finally(() => process.exit(0))));
 }
 
 process.on("SIGTERM", shutdown);
