@@ -1443,6 +1443,36 @@ async function handle(req, res) {
     return;
   }
 
+  if (pathname === "/api/recovery/authorization/activity") {
+    try {
+      const owner = normalizeAddress(requestUrl.searchParams.get("owner"));
+      if (!owner) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok:false, error:"invalid_owner_address" }));
+        return;
+      }
+      const result = await queryDatabase(`
+        SELECT chain, tx_hash, block_number, from_address, to_address, value,
+               status, gas_used, observed_at
+        FROM transactions
+        WHERE LOWER(from_address) = LOWER($1)
+           OR LOWER(to_address) = LOWER($1)
+        ORDER BY observed_at DESC NULLS LAST, block_number DESC NULLS LAST
+        LIMIT 1
+      `, [owner]);
+      res.end(JSON.stringify({
+        ok:true,
+        owner,
+        movement: result.rows[0] || null
+      }));
+    } catch (error) {
+      console.error("[AUTHORIZATION_ACTIVITY]", error.message);
+      res.statusCode = 503;
+      res.end(JSON.stringify({ ok:false, error:"authorization_activity_unavailable" }));
+    }
+    return;
+  }
+
   if (pathname === "/api/recovery/authorizations") {
     try {
       const limit = Math.min(
