@@ -1471,7 +1471,7 @@ async function handle(req, res) {
         FROM recovery_authorizations ra
         LEFT JOIN investigation_cases ic
           ON ic.id = ra.case_id
-        ORDER BY ra.id DESC
+        ORDER BY (ra.onchain_request_id IS NOT NULL) DESC, ra.onchain_request_id ASC NULLS LAST, ra.id DESC
         LIMIT $1
       `, [limit]);
 
