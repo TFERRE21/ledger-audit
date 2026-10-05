@@ -10,7 +10,8 @@
     "scan": "node scanner/runScan.js",
     "api": "node api/server.js",
     "test": "node --test",
-    "deployRecoveryRegistry": "node scripts/deployRecoveryRegistry.js"
+    "deployRecoveryRegistry": "node scripts/deployRecoveryRegistry.js",
+    "deployRecoveryNotificationRegistry": "node scripts/deployRecoveryNotificationRegistry.js"
   },
   "dependencies": {
     "pg": "^8.16.3",
