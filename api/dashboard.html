@@ -28,16 +28,16 @@
 
   <section class="overviewGrid">
     <div class="metricCard"><span>TRANSAÇÕES INDEXADAS</span><b id="overviewTransactions">—</b><small class="metricNote">total salvo na base</small></div>
-    <div class="metricCard"><span>CARTEIRAS ATIVAS 24H</span><b id="overviewWallets">—</b><small id="overviewWalletsNote" class="metricNote">saldo atual ≥ 1 ETH</small></div>
-    <div class="metricCard"><span>MOVIMENTAÇÕES 24H</span><b id="overviewVolume">—</b><small class="metricNote">transações reais da blockchain</small></div>
-    <div class="metricCard"><span>MAIS ATIVA 24H</span><b id="overviewTopWallet">—</b><small class="metricNote">carteira com mais movimentos</small></div>
+    <div class="metricCard"><span>CARTEIRAS ATIVAS 30 DIAS</span><b id="overviewWallets">—</b><small id="overviewWalletsNote" class="metricNote">saldo atual ≥ 1 ETH</small></div>
+    <div class="metricCard"><span>MOVIMENTAÇÕES 30 DIAS</span><b id="overviewVolume">—</b><small class="metricNote">transações reais da blockchain</small></div>
+    <div class="metricCard"><span>MAIS ATIVA 30 DIAS</span><b id="overviewTopWallet">—</b><small class="metricNote">carteira com mais movimentos</small></div>
     <div class="metricCard"><span>ÚLTIMO BLOCO</span><b id="overviewBlock">—</b><small class="metricNote">da rede Ethereum</small></div>
     <div class="metricCard"><span>SCANNER</span><b id="overviewScanner">—</b><small id="overviewScannerNote" class="metricNote">estado do processo</small></div>
   </section>
 
   <section class="cleanGrid">
     <div class="cleanCard">
-      <div class="cleanHead"><div><h2>Top 10 carteiras por movimentações — 24h</h2><p class="muted">Somente carteiras com saldo atual ≥ 1 ETH • movimentos reais registrados nos blocos Ethereum</p></div><button class="miniBtn" onclick="openWalletMenu()">Ver Top 50</button></div>
+      <div class="cleanHead"><div><h2>Top 10 carteiras por movimentações — 30 dias</h2><p class="muted">Somente carteiras com saldo atual ≥ 1 ETH • movimentos reais registrados nos blocos Ethereum nos últimos 30 dias</p></div><button class="miniBtn" onclick="openWalletMenu()">Ver Top 50</button></div>
       <div id="walletBars" class="walletBars"><div class="muted">Carregando blockchain...</div></div>
     </div>
     <div class="cleanCard">
@@ -78,11 +78,11 @@
   </div>
 
   <div id="walletScreen" class="cleanScreen">
-    <div class="screenHead"><div><h2>🏆 Top 50 carteiras mais movimentadas — 24h</h2><div class="muted">Saldo atual verificado diretamente na blockchain ≥ 1 ETH. A quantidade representa movimentos da carteira nas últimas 24h.</div></div><button class="screenClose" onclick="closeWalletMenu()">← Dashboard</button></div>
+    <div class="screenHead"><div><h2>🏆 Top 50 carteiras mais movimentadas — 30 dias</h2><div class="muted">Saldo atual verificado diretamente na blockchain ≥ 1 ETH. A quantidade representa movimentos da carteira nos últimos 30 dias.</div></div><button class="screenClose" onclick="closeWalletMenu()">← Dashboard</button></div>
     <div class="screenBody">
       <div class="walletInfoGrid">
         <div class="card"><div class="label">CARTEIRAS ATIVAS</div><div id="walletCount" class="value">—</div></div>
-        <div class="card"><div class="label">MOVIMENTAÇÕES 24H</div><div id="walletTotalVolume" class="value">—</div></div>
+        <div class="card"><div class="label">MOVIMENTAÇÕES 30 DIAS</div><div id="walletTotalVolume" class="value">—</div></div>
         <div class="card"><div class="label">SALDO MÍNIMO ATUAL</div><div class="value">1 ETH</div></div>
       </div>
       <div class="mobileScroll"><table class="walletTable"><thead><tr><th>#</th><th>Carteira</th><th>Movimentos 24h</th><th>Saldo atual</th><th>Última movimentação</th></tr></thead><tbody id="walletRows"></tbody></table></div>
@@ -310,7 +310,7 @@ async function loadTopWallets(){
   try{
     const el=$("walletBars");
     if(el) el.classList.add("loadingPulse");
-    const r=await fetch("/api/daily-activity?hours=24&limit=150",{cache:"no-store"});
+    const r=await fetch("/api/daily-activity?days=30&limit=150",{cache:"no-store"});
     const j=await r.json();
     if(!j.ok) throw new Error(j.error||"daily activity");
     const wallets=j.wallets||[];
