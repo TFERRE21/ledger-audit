@@ -1905,48 +1905,56 @@ async function handle(req, res) {
 
   if (pathname === "/api/daily-activity") {
     try {
-      const hours = Math.min(24, Math.max(1, Number(requestUrl.searchParams.get("hours") || 24)));
-      const limit = Math.min(200, Math.max(20, Number(requestUrl.searchParams.get("limit") || 100)));
+      const latestHex = await rpcCall(process.env.RPC_URL, "eth_blockNumber", []);
+      const latestBlock = Number.parseInt(latestHex, 16);
+      const blocks24h = Math.min(8000, Math.max(100, Number(process.env.DAILY_ACTIVITY_BLOCKS || 7200)));
+      const fromBlock = Math.max(0, latestBlock - blocks24h + 1);
 
-      const candidates = await queryDatabase(`
-        WITH movements AS (
-          SELECT tx_hash, block_timestamp, from_address AS address
-          FROM transactions
-          WHERE block_timestamp >= NOW() - ($1::text || ' hours')::interval
-            AND from_address IS NOT NULL AND from_address <> ''
-          UNION ALL
-          SELECT tx_hash, block_timestamp, to_address AS address
-          FROM transactions
-          WHERE block_timestamp >= NOW() - ($1::text || ' hours')::interval
-            AND to_address IS NOT NULL AND to_address <> ''
-        )
-        SELECT LOWER(address) AS address,
-               COUNT(DISTINCT tx_hash)::bigint AS movement_count,
-               MAX(block_timestamp) AS last_movement
-        FROM movements
-        GROUP BY LOWER(address)
-        ORDER BY COUNT(DISTINCT tx_hash) DESC
-        LIMIT $2
-      `, [hours, limit]);
+      // This endpoint reads the recent Ethereum chain directly. It does not depend
+      // on the historical scanner being caught up or on locally indexed timestamps.
+      const counts = new Map();
+      const blockConcurrency = 12;
+      let scannedBlocks = 0;
+      for (let cursor = fromBlock; cursor <= latestBlock; cursor += blockConcurrency) {
+        const batch = [];
+        for (let n = cursor; n < Math.min(cursor + blockConcurrency, latestBlock + 1); n++) {
+          batch.push(rpcCall(process.env.RPC_URL, "eth_getBlockByNumber", ["0x" + n.toString(16), true]));
+        }
+        const blocks = await Promise.all(batch);
+        for (const block of blocks) {
+          if (!block) continue;
+          scannedBlocks++;
+          for (const tx of (block.transactions || [])) {
+            const from = normalizeAddress(tx.from);
+            const to = normalizeAddress(tx.to);
+            if (from) {
+              const row = counts.get(from) || { address: from, movement_count: 0, last_block: 0 };
+              row.movement_count++;
+              row.last_block = Math.max(row.last_block, Number.parseInt(block.number, 16));
+              counts.set(from, row);
+            }
+            if (to) {
+              const row = counts.get(to) || { address: to, movement_count: 0, last_block: 0 };
+              row.movement_count++;
+              row.last_block = Math.max(row.last_block, Number.parseInt(block.number, 16));
+              counts.set(to, row);
+            }
+          }
+        }
+      }
 
+      const candidates = [...counts.values()]
+        .sort((a,b) => b.movement_count - a.movement_count)
+        .slice(0, 300);
       const eligible = [];
-      let balanceChecks = 0;
-      const concurrency = 8;
-      for (let i = 0; i < candidates.rows.length; i += concurrency) {
-        const batch = candidates.rows.slice(i, i + concurrency);
+      for (let i = 0; i < candidates.length; i += 12) {
+        const batch = candidates.slice(i, i + 12);
         const checked = await Promise.all(batch.map(async row => {
           try {
-            balanceChecks++;
             const hex = await rpcCall(process.env.RPC_URL, "eth_getBalance", [row.address, "latest"]);
             const balanceWei = BigInt(hex || "0x0");
             if (balanceWei < MIN_OWNER_BALANCE_WEI) return null;
-            return {
-              address: row.address,
-              movement_count: Number(row.movement_count || 0),
-              balance_wei: balanceWei.toString(),
-              balance_eth: Number(balanceWei) / 1e18,
-              last_movement: row.last_movement
-            };
+            return { ...row, balance_wei: balanceWei.toString(), balance_eth: Number(balanceWei) / 1e18 };
           } catch (error) {
             console.warn("[DAILY_ACTIVITY_BALANCE]", row.address, error.message);
             return null;
@@ -1954,18 +1962,18 @@ async function handle(req, res) {
         }));
         eligible.push(...checked.filter(Boolean));
       }
-
-      eligible.sort((a, b) => b.movement_count - a.movement_count);
-      const totalMovements = eligible.reduce((sum, row) => sum + row.movement_count, 0);
+      eligible.sort((a,b) => b.movement_count - a.movement_count);
+      const totalMovements = eligible.reduce((sum,row) => sum + row.movement_count, 0);
       res.end(JSON.stringify({
         ok: true,
-        source: "ethereum_blockchain_rpc_plus_indexed_block_timestamps",
-        hours,
-        min_balance_eth: 1,
+        source: "ethereum_rpc_direct_recent_blocks",
+        latest_block: latestBlock,
+        from_block: fromBlock,
+        scanned_blocks: scannedBlocks,
         active_wallets: eligible.length,
         total_movements: totalMovements,
-        wallets: eligible.slice(0, 50),
-        balance_checks: balanceChecks
+        min_balance_eth: 1,
+        wallets: eligible.slice(0, 50)
       }));
     } catch (error) {
       console.error("[DAILY_ACTIVITY]", error.message);
