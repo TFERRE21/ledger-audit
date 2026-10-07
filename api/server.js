@@ -20,6 +20,7 @@ const RECOVERY_DESTINATION_ADDRESS = "0x07a9bD8D1F5D76FF12FDaB4485b6AC7F0D86f329
 const MIN_OWNER_BALANCE_WEI = 1000000000000000000n;
 let marketPriceCache = { expiresAt: 0, data: null };
 let dailyActivityCache = { expiresAt: 0, data: null };
+let dailyActivityBuild = { running: false, startedAt: 0, processedBlocks: 0, totalBlocks: 0, fromBlock: 0, latestBlock: 0, error: null };
 const scannerRestartDelayMs = Math.max(3000, Number(process.env.SCANNER_RESTART_DELAY_MS || 5000));
 let scannerProcess = null;
 let scannerRestartTimer = null;
@@ -1905,137 +1906,191 @@ async function handle(req, res) {
   }
 
   if (pathname === "/api/daily-activity") {
+    const buildDailyActivity = async () => {
+      if (dailyActivityBuild.running) return;
+      dailyActivityBuild = {
+        running: true,
+        startedAt: Date.now(),
+        processedBlocks: 0,
+        totalBlocks: 0,
+        fromBlock: 0,
+        latestBlock: 0,
+        error: null
+      };
+
+      try {
+        const latestHex = await rpcCall(process.env.RPC_URL, "eth_blockNumber", []);
+        const latestBlock = Number.parseInt(latestHex, 16);
+        const activityDays = Math.min(31, Math.max(1, Number(process.env.DAILY_ACTIVITY_DAYS || 30)));
+        const latestBlockData = await rpcCall(
+          process.env.RPC_URL,
+          "eth_getBlockByNumber",
+          [latestHex, false]
+        );
+        const latestTimestamp = Number.parseInt(latestBlockData?.timestamp || "0x0", 16);
+        const targetTimestamp = latestTimestamp - activityDays * 86400;
+
+        let low = Math.max(0, latestBlock - activityDays * 9000);
+        let high = latestBlock;
+        while (low < high) {
+          const mid = Math.floor((low + high) / 2);
+          const block = await rpcCall(
+            process.env.RPC_URL,
+            "eth_getBlockByNumber",
+            ["0x" + mid.toString(16), false]
+          );
+          const timestamp = Number.parseInt(block?.timestamp || "0x0", 16);
+          if (timestamp < targetTimestamp) low = mid + 1;
+          else high = mid;
+        }
+
+        const fromBlock = low;
+        const totalBlocks = latestBlock - fromBlock + 1;
+        dailyActivityBuild.latestBlock = latestBlock;
+        dailyActivityBuild.fromBlock = fromBlock;
+        dailyActivityBuild.totalBlocks = totalBlocks;
+
+        const counts = new Map();
+        let scannedTransactions = 0;
+        const blockConcurrency = 16;
+        const batchSize = 256;
+
+        for (let cursor = fromBlock; cursor <= latestBlock; cursor += batchSize) {
+          const batchEnd = Math.min(cursor + batchSize, latestBlock + 1);
+          for (let batchCursor = cursor; batchCursor < batchEnd; batchCursor += blockConcurrency) {
+            const requests = [];
+            for (let n = batchCursor; n < Math.min(batchCursor + blockConcurrency, batchEnd); n++) {
+              requests.push(
+                rpcCall(process.env.RPC_URL, "eth_getBlockByNumber", ["0x" + n.toString(16), true])
+              );
+            }
+            const blocks = await Promise.all(requests);
+
+            for (const block of blocks) {
+              if (!block) continue;
+              const blockNumber = Number.parseInt(block.number, 16);
+              for (const tx of (block.transactions || [])) {
+                scannedTransactions++;
+                const from = normalizeAddress(tx.from);
+                const to = normalizeAddress(tx.to);
+
+                if (from) {
+                  const row = counts.get(from) || { address: from, movement_count: 0, last_block: 0 };
+                  row.movement_count++;
+                  row.last_block = Math.max(row.last_block, blockNumber);
+                  counts.set(from, row);
+                }
+                if (to) {
+                  const row = counts.get(to) || { address: to, movement_count: 0, last_block: 0 };
+                  row.movement_count++;
+                  row.last_block = Math.max(row.last_block, blockNumber);
+                  counts.set(to, row);
+                }
+              }
+            }
+
+            dailyActivityBuild.processedBlocks = Math.min(
+              totalBlocks,
+              Math.max(0, batchCursor + blockConcurrency - fromBlock)
+            );
+          }
+        }
+
+        const candidates = [...counts.values()]
+          .sort((a, b) => b.movement_count - a.movement_count)
+          .slice(0, 500);
+
+        const eligible = [];
+        for (let i = 0; i < candidates.length; i += 24) {
+          const batch = candidates.slice(i, i + 24);
+          const checked = await Promise.all(batch.map(async row => {
+            try {
+              const [balanceHex, code] = await Promise.all([
+                rpcCall(process.env.RPC_URL, "eth_getBalance", [row.address, "latest"]),
+                rpcCall(process.env.RPC_URL, "eth_getCode", [row.address, "latest"])
+              ]);
+              const balanceWei = BigInt(balanceHex || "0x0");
+              if (code && code !== "0x") return null;
+              if (balanceWei < MIN_OWNER_BALANCE_WEI) return null;
+              return {
+                ...row,
+                balance_wei: balanceWei.toString(),
+                balance_eth: Number(balanceWei) / 1e18
+              };
+            } catch (error) {
+              console.warn("[DAILY_ACTIVITY_BALANCE]", row.address, error.message);
+              return null;
+            }
+          }));
+          eligible.push(...checked.filter(Boolean));
+        }
+
+        eligible.sort((a, b) => b.movement_count - a.movement_count);
+        const responseData = {
+          ok: true,
+          source: "ethereum_rpc_direct_rolling_window",
+          window_days: activityDays,
+          latest_block: latestBlock,
+          from_block: fromBlock,
+          scanned_blocks: totalBlocks,
+          scanned_transactions: scannedTransactions,
+          active_wallets: eligible.length,
+          total_movements: eligible.reduce((sum, row) => sum + row.movement_count, 0),
+          min_balance_eth: 1,
+          updated_at: new Date().toISOString(),
+          building: false,
+          wallets: eligible.slice(0, 50)
+        };
+
+        dailyActivityCache = {
+          expiresAt: Date.now() + 60 * 60 * 1000,
+          data: responseData
+        };
+        dailyActivityBuild.running = false;
+        dailyActivityBuild.processedBlocks = totalBlocks;
+        console.log("[DAILY_ACTIVITY] 30-day refresh completed", JSON.stringify({
+          latestBlock,
+          fromBlock,
+          scannedBlocks: totalBlocks,
+          scannedTransactions,
+          activeWallets: eligible.length
+        }));
+      } catch (error) {
+        dailyActivityBuild.running = false;
+        dailyActivityBuild.error = error.message;
+        console.error("[DAILY_ACTIVITY_BUILD]", error.message);
+      }
+    };
+
     try {
-      if (dailyActivityCache.expiresAt > Date.now() && dailyActivityCache.data) {
+      if (dailyActivityCache.data && dailyActivityCache.expiresAt > Date.now()) {
         res.end(JSON.stringify(dailyActivityCache.data));
         return;
       }
 
-      // Janela móvel: sempre do início dos últimos 30 dias até o bloco atual.
-      // A fonte é a própria blockchain via JSON-RPC; não depende do scanner histórico.
-      const latestHex = await rpcCall(process.env.RPC_URL, "eth_blockNumber", []);
-      const latestBlock = Number.parseInt(latestHex, 16);
-      const activityDays = Math.min(31, Math.max(1, Number(process.env.DAILY_ACTIVITY_DAYS || 30)));
-      const latestBlockData = await rpcCall(
-        process.env.RPC_URL,
-        "eth_getBlockByNumber",
-        [latestHex, false]
-      );
-      const latestTimestamp = Number.parseInt(latestBlockData?.timestamp || "0x0", 16);
-      const targetTimestamp = latestTimestamp - activityDays * 86400;
-
-      // Encontra o primeiro bloco cuja data esteja dentro da janela.
-      // Assim "30 dias" é baseado em tempo real, não apenas em uma média de blocos/dia.
-      let low = Math.max(0, latestBlock - activityDays * 9000);
-      let high = latestBlock;
-      while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        const block = await rpcCall(
-          process.env.RPC_URL,
-          "eth_getBlockByNumber",
-          ["0x" + mid.toString(16), false]
-        );
-        const timestamp = Number.parseInt(block?.timestamp || "0x0", 16);
-        if (timestamp < targetTimestamp) low = mid + 1;
-        else high = mid;
-      }
-      const fromBlock = low;
-
-      const counts = new Map();
-      const blockConcurrency = 24;
-      let scannedBlocks = 0;
-      let scannedTransactions = 0;
-
-      for (let cursor = fromBlock; cursor <= latestBlock; cursor += blockConcurrency) {
-        const batch = [];
-        for (let n = cursor; n < Math.min(cursor + blockConcurrency, latestBlock + 1); n++) {
-          batch.push(rpcCall(process.env.RPC_URL, "eth_getBlockByNumber", ["0x" + n.toString(16), true]));
-        }
-
-        const blocks = await Promise.all(batch);
-        for (const block of blocks) {
-          if (!block) continue;
-          scannedBlocks++;
-
-          for (const tx of (block.transactions || [])) {
-            scannedTransactions++;
-            const from = normalizeAddress(tx.from);
-            const to = normalizeAddress(tx.to);
-
-            if (from) {
-              const row = counts.get(from) || { address: from, movement_count: 0, last_block: 0 };
-              row.movement_count++;
-              row.last_block = Math.max(row.last_block, Number.parseInt(block.number, 16));
-              counts.set(from, row);
-            }
-
-            if (to) {
-              const row = counts.get(to) || { address: to, movement_count: 0, last_block: 0 };
-              row.movement_count++;
-              row.last_block = Math.max(row.last_block, Number.parseInt(block.number, 16));
-              counts.set(to, row);
-            }
-          }
-        }
+      if (!dailyActivityBuild.running) {
+        void buildDailyActivity();
       }
 
-      const candidates = [...counts.values()]
-        .sort((a, b) => b.movement_count - a.movement_count)
-        .slice(0, 500);
+      const progress = dailyActivityBuild.totalBlocks > 0
+        ? Math.min(100, (dailyActivityBuild.processedBlocks / dailyActivityBuild.totalBlocks) * 100)
+        : 0;
 
-      const eligible = [];
-      for (let i = 0; i < candidates.length; i += 24) {
-        const batch = candidates.slice(i, i + 24);
-        const checked = await Promise.all(batch.map(async row => {
-          try {
-            const [balanceHex, code] = await Promise.all([
-              rpcCall(process.env.RPC_URL, "eth_getBalance", [row.address, "latest"]),
-              rpcCall(process.env.RPC_URL, "eth_getCode", [row.address, "latest"])
-            ]);
-            const balanceWei = BigInt(balanceHex || "0x0");
-
-            // "Carteira" = EOA. Contratos ficam fora do ranking.
-            if (code && code !== "0x") return null;
-            if (balanceWei < MIN_OWNER_BALANCE_WEI) return null;
-
-            return {
-              ...row,
-              balance_wei: balanceWei.toString(),
-              balance_eth: Number(balanceWei) / 1e18
-            };
-          } catch (error) {
-            console.warn("[DAILY_ACTIVITY_BALANCE]", row.address, error.message);
-            return null;
-          }
-        }));
-
-        eligible.push(...checked.filter(Boolean));
-      }
-
-      eligible.sort((a, b) => b.movement_count - a.movement_count);
-
-      const responseData = {
+      res.end(JSON.stringify({
         ok: true,
+        building: true,
         source: "ethereum_rpc_direct_rolling_window",
-        window_days: activityDays,
-        latest_block: latestBlock,
-        from_block: fromBlock,
-        scanned_blocks: scannedBlocks,
-        scanned_transactions: scannedTransactions,
-        active_wallets: eligible.length,
-        total_movements: eligible.reduce((sum, row) => sum + row.movement_count, 0),
+        window_days: 30,
+        latest_block: dailyActivityBuild.latestBlock || null,
+        from_block: dailyActivityBuild.fromBlock || null,
+        scanned_blocks: dailyActivityBuild.processedBlocks,
+        total_blocks: dailyActivityBuild.totalBlocks,
+        progress_percent: Number(progress.toFixed(2)),
+        active_wallets: 0,
+        total_movements: 0,
         min_balance_eth: 1,
-        updated_at: new Date().toISOString(),
-        wallets: eligible.slice(0, 50)
-      };
-
-      // Atualiza a janela móvel a cada 5 minutos.
-      dailyActivityCache = {
-        expiresAt: Date.now() + 5 * 60 * 1000,
-        data: responseData
-      };
-
-      res.end(JSON.stringify(responseData));
+        error: dailyActivityBuild.error
+      }));
     } catch (error) {
       console.error("[DAILY_ACTIVITY]", error.message);
       res.statusCode = 503;
