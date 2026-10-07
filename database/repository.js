@@ -3,6 +3,10 @@ import { pool } from "./connection.js";
 const schemaReady = pool.query(`
   ALTER TABLE transactions
     ADD COLUMN IF NOT EXISTS token_transfers JSONB NOT NULL DEFAULT '[]'::jsonb;
+  ALTER TABLE transactions
+    ADD COLUMN IF NOT EXISTS block_timestamp TIMESTAMPTZ;
+  CREATE INDEX IF NOT EXISTS idx_transactions_block_timestamp
+    ON transactions(block_timestamp DESC);
   ALTER TABLE investigation_cases
     ADD COLUMN IF NOT EXISTS block_number BIGINT;
   ALTER TABLE investigation_cases
@@ -86,11 +90,12 @@ export async function saveTransaction(tx) {
   await schemaReady;
   const query = `
     INSERT INTO transactions
-      (chain, tx_hash, block_number, from_address, to_address, value, status, gas_used, token_transfers)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+      (chain, tx_hash, block_number, block_timestamp, from_address, to_address, value, status, gas_used, token_transfers)
+    VALUES ($1,$2,$3,to_timestamp($4),$5,$6,$7,$8,$9,$10::jsonb)
     ON CONFLICT (chain, tx_hash)
     DO UPDATE SET
       block_number = EXCLUDED.block_number,
+      block_timestamp = EXCLUDED.block_timestamp,
       from_address = EXCLUDED.from_address,
       to_address = EXCLUDED.to_address,
       value = EXCLUDED.value,
@@ -100,7 +105,7 @@ export async function saveTransaction(tx) {
     RETURNING id
   `;
   const values = [
-    tx.chain, tx.hash, tx.blockNumber, tx.from, tx.to, tx.value, tx.status,
+    tx.chain, tx.hash, tx.blockNumber, tx.timestamp ?? null, tx.from, tx.to, tx.value, tx.status,
     tx.gasUsed, JSON.stringify(tx.tokenTransfers ?? [])
   ];
   const result = await pool.query(query, values);
