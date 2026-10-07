@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { ethers } from "ethers";
 import { buildOwnerAuthorizationMessage } from "../recovery/ownerAuthorization.js";
 import { createOnChainRecoveryRequest, isRecoveryRegistryConfigured } from "../blockchain/recoveryRegistry.js";
+import { rpcCall } from "../indexer/rpcClient.js";
 
 import { scanContracts } from "./contractScanner.js";
 
@@ -19,6 +20,19 @@ if (!config.rpcUrl) {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+const MIN_OWNER_BALANCE_WEI = 1000000000000000000n;
+
+async function hasMinimumOwnerBalance(address) {
+  try {
+    const balanceHex = await rpcCall(config.rpcUrl, "eth_getBalance", [address, "latest"]);
+    const balanceWei = BigInt(balanceHex || "0x0");
+    return { eligible: balanceWei >= MIN_OWNER_BALANCE_WEI, balanceWei };
+  } catch (error) {
+    console.error(`[AUTHORIZATION_BALANCE] owner=${address} check failed: ${error.message}`);
+    return { eligible: false, balanceWei: 0n, error: error.message };
+  }
 }
 
 async function scanOnce() {
@@ -109,6 +123,19 @@ async function scanOnce() {
         /^0x[a-f-f0-9]{40}$/i.test(ownerCandidate) &&
         /^0x[a-f-f0-9]{40}$/i.test(String(destination || ""))
       ) {
+        const balanceCheck = await hasMinimumOwnerBalance(ownerCandidate);
+        if (!balanceCheck.eligible) {
+          await saveScanLog({
+            chain: config.chain,
+            blockNumber: tx.blockNumber,
+            level: "authorization_skipped",
+            message: `[AUTHORIZATION_SKIPPED] case=${caseId} ownerCandidate=${ownerCandidate} balanceWei=${balanceCheck.balanceWei.toString()} reason=balance_below_1_eth`,
+            opportunity: false
+          });
+          console.log(`[AUTHORIZATION_SKIPPED] case=${caseId} ownerCandidate=${ownerCandidate} reason=balance_below_1_eth`);
+          continue;
+        }
+
         const existing = await pool.query(
           `SELECT id FROM recovery_authorizations
            WHERE case_id = $1
