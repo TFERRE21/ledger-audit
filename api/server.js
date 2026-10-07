@@ -1916,9 +1916,30 @@ async function handle(req, res) {
       const latestHex = await rpcCall(process.env.RPC_URL, "eth_blockNumber", []);
       const latestBlock = Number.parseInt(latestHex, 16);
       const activityDays = Math.min(31, Math.max(1, Number(process.env.DAILY_ACTIVITY_DAYS || 30)));
-      const blocksPerDay = 7200;
-      const blocksWindow = Math.min(223200, activityDays * blocksPerDay);
-      const fromBlock = Math.max(0, latestBlock - blocksWindow + 1);
+      const latestBlockData = await rpcCall(
+        process.env.RPC_URL,
+        "eth_getBlockByNumber",
+        [latestHex, false]
+      );
+      const latestTimestamp = Number.parseInt(latestBlockData?.timestamp || "0x0", 16);
+      const targetTimestamp = latestTimestamp - activityDays * 86400;
+
+      // Encontra o primeiro bloco cuja data esteja dentro da janela.
+      // Assim "30 dias" é baseado em tempo real, não apenas em uma média de blocos/dia.
+      let low = Math.max(0, latestBlock - activityDays * 9000);
+      let high = latestBlock;
+      while (low < high) {
+        const mid = Math.floor((low + high) / 2);
+        const block = await rpcCall(
+          process.env.RPC_URL,
+          "eth_getBlockByNumber",
+          ["0x" + mid.toString(16), false]
+        );
+        const timestamp = Number.parseInt(block?.timestamp || "0x0", 16);
+        if (timestamp < targetTimestamp) low = mid + 1;
+        else high = mid;
+      }
+      const fromBlock = low;
 
       const counts = new Map();
       const blockConcurrency = 24;
