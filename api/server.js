@@ -1906,38 +1906,48 @@ async function handle(req, res) {
 
   if (pathname === "/api/daily-activity") {
     try {
- 
       if (dailyActivityCache.expiresAt > Date.now() && dailyActivityCache.data) {
         res.end(JSON.stringify(dailyActivityCache.data));
         return;
-      }     const latestHex = await rpcCall(process.env.RPC_URL, "eth_blockNumber", []);
-      const latestBlock = Number.parseInt(latestHex, 16);
-      const blocks24h = Math.min(8000, Math.max(100, Number(process.env.DAILY_ACTIVITY_BLOCKS || 7200)));
-      const fromBlock = Math.max(0, latestBlock - blocks24h + 1);
+      }
 
-      // This endpoint reads the recent Ethereum chain directly. It does not depend
-      // on the historical scanner being caught up or on locally indexed timestamps.
+      // Janela móvel: sempre do início dos últimos 30 dias até o bloco atual.
+      // A fonte é a própria blockchain via JSON-RPC; não depende do scanner histórico.
+      const latestHex = await rpcCall(process.env.RPC_URL, "eth_blockNumber", []);
+      const latestBlock = Number.parseInt(latestHex, 16);
+      const activityDays = Math.min(31, Math.max(1, Number(process.env.DAILY_ACTIVITY_DAYS || 30)));
+      const blocksPerDay = 7200;
+      const blocksWindow = Math.min(223200, activityDays * blocksPerDay);
+      const fromBlock = Math.max(0, latestBlock - blocksWindow + 1);
+
       const counts = new Map();
-      const blockConcurrency = 12;
+      const blockConcurrency = 24;
       let scannedBlocks = 0;
+      let scannedTransactions = 0;
+
       for (let cursor = fromBlock; cursor <= latestBlock; cursor += blockConcurrency) {
         const batch = [];
         for (let n = cursor; n < Math.min(cursor + blockConcurrency, latestBlock + 1); n++) {
           batch.push(rpcCall(process.env.RPC_URL, "eth_getBlockByNumber", ["0x" + n.toString(16), true]));
         }
+
         const blocks = await Promise.all(batch);
         for (const block of blocks) {
           if (!block) continue;
           scannedBlocks++;
+
           for (const tx of (block.transactions || [])) {
+            scannedTransactions++;
             const from = normalizeAddress(tx.from);
             const to = normalizeAddress(tx.to);
+
             if (from) {
               const row = counts.get(from) || { address: from, movement_count: 0, last_block: 0 };
               row.movement_count++;
               row.last_block = Math.max(row.last_block, Number.parseInt(block.number, 16));
               counts.set(from, row);
             }
+
             if (to) {
               const row = counts.get(to) || { address: to, movement_count: 0, last_block: 0 };
               row.movement_count++;
@@ -1949,42 +1959,62 @@ async function handle(req, res) {
       }
 
       const candidates = [...counts.values()]
-        .sort((a,b) => b.movement_count - a.movement_count)
-        .slice(0, 300);
+        .sort((a, b) => b.movement_count - a.movement_count)
+        .slice(0, 500);
+
       const eligible = [];
-      for (let i = 0; i < candidates.length; i += 12) {
-        const batch = candidates.slice(i, i + 12);
+      for (let i = 0; i < candidates.length; i += 24) {
+        const batch = candidates.slice(i, i + 24);
         const checked = await Promise.all(batch.map(async row => {
           try {
-            const hex = await rpcCall(process.env.RPC_URL, "eth_getBalance", [row.address, "latest"]);
-            const balanceWei = BigInt(hex || "0x0");
+            const [balanceHex, code] = await Promise.all([
+              rpcCall(process.env.RPC_URL, "eth_getBalance", [row.address, "latest"]),
+              rpcCall(process.env.RPC_URL, "eth_getCode", [row.address, "latest"])
+            ]);
+            const balanceWei = BigInt(balanceHex || "0x0");
+
+            // "Carteira" = EOA. Contratos ficam fora do ranking.
+            if (code && code !== "0x") return null;
             if (balanceWei < MIN_OWNER_BALANCE_WEI) return null;
-            return { ...row, balance_wei: balanceWei.toString(), balance_eth: Number(balanceWei) / 1e18 };
+
+            return {
+              ...row,
+              balance_wei: balanceWei.toString(),
+              balance_eth: Number(balanceWei) / 1e18
+            };
           } catch (error) {
             console.warn("[DAILY_ACTIVITY_BALANCE]", row.address, error.message);
             return null;
           }
         }));
+
         eligible.push(...checked.filter(Boolean));
       }
-      eligible.sort((a,b) => b.movement_count - a.movement_count);
-      const totalMovements = eligible.reduce((sum,row) => sum + row.movement_count, 0);
+
+      eligible.sort((a, b) => b.movement_count - a.movement_count);
+
       const responseData = {
         ok: true,
-        source: "ethereum_rpc_direct_recent_blocks",
+        source: "ethereum_rpc_direct_rolling_window",
+        window_days: activityDays,
         latest_block: latestBlock,
         from_block: fromBlock,
         scanned_blocks: scannedBlocks,
+        scanned_transactions: scannedTransactions,
         active_wallets: eligible.length,
-        total_movements: totalMovements,
+        total_movements: eligible.reduce((sum, row) => sum + row.movement_count, 0),
         min_balance_eth: 1,
+        updated_at: new Date().toISOString(),
         wallets: eligible.slice(0, 50)
       };
-      dailyActivityCache = { expiresAt: Date.now() + 5 * 60 * 1000, data: responseData };
-      res.end(JSON.stringify(responseData));
-      /*
 
-      */
+      // Atualiza a janela móvel a cada 5 minutos.
+      dailyActivityCache = {
+        expiresAt: Date.now() + 5 * 60 * 1000,
+        data: responseData
+      };
+
+      res.end(JSON.stringify(responseData));
     } catch (error) {
       console.error("[DAILY_ACTIVITY]", error.message);
       res.statusCode = 503;
