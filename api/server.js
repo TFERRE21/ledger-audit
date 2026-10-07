@@ -494,6 +494,9 @@ async function handle(req, res) {
     try {
       const html = await readFile(new URL("./dashboard.html", import.meta.url), "utf8");
       res.setHeader("content-type", "text/html; charset=utf-8");
+      res.setHeader("cache-control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("pragma", "no-cache");
+      res.setHeader("expires", "0");
       res.end(html);
     } catch {
       res.statusCode = 500;
