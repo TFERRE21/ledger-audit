@@ -31,8 +31,13 @@ const schemaReady = pool.query(`
     ADD COLUMN IF NOT EXISTS value_wei_numeric NUMERIC
       GENERATED ALWAYS AS (
         CASE
-          WHEN value ~ '^[0-9]+(\\.[0-9]+)?
-    ADD COLUMN IF NOT EXISTS block_number BIGINT;
+          WHEN value ~ '^[0-9]+(\\.[0-9]+)?$' THEN value::numeric
+          ELSE NULL
+        END
+      ) STORED;
+  CREATE INDEX IF NOT EXISTS idx_transactions_value_wei_numeric
+    ON transactions(value_wei_numeric)
+    WHERE value_wei_numeric >= 1000000000000000000;
   ALTER TABLE investigation_cases
     ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
   CREATE TABLE IF NOT EXISTS recovery_events (
