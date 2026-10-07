@@ -1903,7 +1903,78 @@ async function handle(req, res) {
     return;
   }
 
-  if (pathname === "/api/daily-activity") {\n    try {\n      const hours = Math.min(24, Math.max(1, Number(requestUrl.searchParams.get("hours") || 24)));\n      const limit = Math.min(200, Math.max(20, Number(requestUrl.searchParams.get("limit") || 100)));\n\n      const candidates = await queryDatabase(`\n        WITH movements AS (\n          SELECT tx_hash, block_timestamp, from_address AS address\n          FROM transactions\n          WHERE block_timestamp >= NOW() - ($1::text || ' hours')::interval\n            AND from_address IS NOT NULL AND from_address <> ''\n          UNION ALL\n          SELECT tx_hash, block_timestamp, to_address AS address\n          FROM transactions\n          WHERE block_timestamp >= NOW() - ($1::text || ' hours')::interval\n            AND to_address IS NOT NULL AND to_address <> ''\n        )\n        SELECT LOWER(address) AS address,\n               COUNT(DISTINCT tx_hash)::bigint AS movement_count,\n               MAX(block_timestamp) AS last_movement\n        FROM movements\n        GROUP BY LOWER(address)\n        ORDER BY COUNT(DISTINCT tx_hash) DESC\n        LIMIT $2\n      `, [hours, limit]);\n\n      const eligible = [];\n      let balanceChecks = 0;\n      const concurrency = 8;\n      for (let i = 0; i < candidates.rows.length; i += concurrency) {\n        const batch = candidates.rows.slice(i, i + concurrency);\n        const checked = await Promise.all(batch.map(async row => {\n          try {\n            balanceChecks++;\n            const hex = await rpcCall(process.env.RPC_URL, "eth_getBalance", [row.address, "latest"]);\n            const balanceWei = BigInt(hex || "0x0");\n            if (balanceWei < MIN_OWNER_BALANCE_WEI) return null;\n            return {\n              address: row.address,\n              movement_count: Number(row.movement_count || 0),\n              balance_wei: balanceWei.toString(),\n              balance_eth: Number(balanceWei) / 1e18,\n              last_movement: row.last_movement\n            };\n          } catch (error) {\n            console.warn("[DAILY_ACTIVITY_BALANCE]", row.address, error.message);\n            return null;\n          }\n        }));\n        eligible.push(...checked.filter(Boolean));\n      }\n\n      eligible.sort((a, b) => b.movement_count - a.movement_count);\n      const totalMovements = eligible.reduce((sum, row) => sum + row.movement_count, 0);\n      res.end(JSON.stringify({\n        ok: true,\n        source: "ethereum_blockchain_rpc_plus_indexed_block_timestamps",\n        hours,\n        min_balance_eth: 1,\n        active_wallets: eligible.length,\n        total_movements: totalMovements,\n        wallets: eligible.slice(0, 50),\n        balance_checks: balanceChecks\n      }));\n    } catch (error) {\n      console.error("[DAILY_ACTIVITY]", error.message);\n      res.statusCode = 503;\n      res.end(JSON.stringify({ ok: false, error: "daily_activity_unavailable" }));\n    }\n    return;\n  }\n  if (pathname === "/api/top-wallets") {
+  if (pathname === "/api/daily-activity") {
+    try {
+      const hours = Math.min(24, Math.max(1, Number(requestUrl.searchParams.get("hours") || 24)));
+      const limit = Math.min(200, Math.max(20, Number(requestUrl.searchParams.get("limit") || 100)));
+
+      const candidates = await queryDatabase(`
+        WITH movements AS (
+          SELECT tx_hash, block_timestamp, from_address AS address
+          FROM transactions
+          WHERE block_timestamp >= NOW() - ($1::text || ' hours')::interval
+            AND from_address IS NOT NULL AND from_address <> ''
+          UNION ALL
+          SELECT tx_hash, block_timestamp, to_address AS address
+          FROM transactions
+          WHERE block_timestamp >= NOW() - ($1::text || ' hours')::interval
+            AND to_address IS NOT NULL AND to_address <> ''
+        )
+        SELECT LOWER(address) AS address,
+               COUNT(DISTINCT tx_hash)::bigint AS movement_count,
+               MAX(block_timestamp) AS last_movement
+        FROM movements
+        GROUP BY LOWER(address)
+        ORDER BY COUNT(DISTINCT tx_hash) DESC
+        LIMIT $2
+      `, [hours, limit]);
+
+      const eligible = [];
+      let balanceChecks = 0;
+      const concurrency = 8;
+      for (let i = 0; i < candidates.rows.length; i += concurrency) {
+        const batch = candidates.rows.slice(i, i + concurrency);
+        const checked = await Promise.all(batch.map(async row => {
+          try {
+            balanceChecks++;
+            const hex = await rpcCall(process.env.RPC_URL, "eth_getBalance", [row.address, "latest"]);
+            const balanceWei = BigInt(hex || "0x0");
+            if (balanceWei < MIN_OWNER_BALANCE_WEI) return null;
+            return {
+              address: row.address,
+              movement_count: Number(row.movement_count || 0),
+              balance_wei: balanceWei.toString(),
+              balance_eth: Number(balanceWei) / 1e18,
+              last_movement: row.last_movement
+            };
+          } catch (error) {
+            console.warn("[DAILY_ACTIVITY_BALANCE]", row.address, error.message);
+            return null;
+          }
+        }));
+        eligible.push(...checked.filter(Boolean));
+      }
+
+      eligible.sort((a, b) => b.movement_count - a.movement_count);
+      const totalMovements = eligible.reduce((sum, row) => sum + row.movement_count, 0);
+      res.end(JSON.stringify({
+        ok: true,
+        source: "ethereum_blockchain_rpc_plus_indexed_block_timestamps",
+        hours,
+        min_balance_eth: 1,
+        active_wallets: eligible.length,
+        total_movements: totalMovements,
+        wallets: eligible.slice(0, 50),
+        balance_checks: balanceChecks
+      }));
+    } catch (error) {
+      console.error("[DAILY_ACTIVITY]", error.message);
+      res.statusCode = 503;
+      res.end(JSON.stringify({ ok: false, error: "daily_activity_unavailable" }));
+    }
+    return;
+  }
+  if (pathname === "/api/top-wallets") {
     try {
       const requestedLimit = Number(requestUrl.searchParams.get("limit") || 50);
       const limit = Math.min(50, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 50));
