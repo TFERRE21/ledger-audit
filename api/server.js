@@ -19,6 +19,7 @@ const port = Number(process.env.PORT || 3000);
 const RECOVERY_DESTINATION_ADDRESS = "0x07a9bD8D1F5D76FF12FDaB4485b6AC7F0D86f329";
 const MIN_OWNER_BALANCE_WEI = 1000000000000000000n;
 let marketPriceCache = { expiresAt: 0, data: null };
+let dailyActivityCache = { expiresAt: 0, data: null };
 const scannerRestartDelayMs = Math.max(3000, Number(process.env.SCANNER_RESTART_DELAY_MS || 5000));
 let scannerProcess = null;
 let scannerRestartTimer = null;
@@ -1905,7 +1906,11 @@ async function handle(req, res) {
 
   if (pathname === "/api/daily-activity") {
     try {
-      const latestHex = await rpcCall(process.env.RPC_URL, "eth_blockNumber", []);
+ 
+      if (dailyActivityCache.expiresAt > Date.now() && dailyActivityCache.data) {
+        res.end(JSON.stringify(dailyActivityCache.data));
+        return;
+      }     const latestHex = await rpcCall(process.env.RPC_URL, "eth_blockNumber", []);
       const latestBlock = Number.parseInt(latestHex, 16);
       const blocks24h = Math.min(8000, Math.max(100, Number(process.env.DAILY_ACTIVITY_BLOCKS || 7200)));
       const fromBlock = Math.max(0, latestBlock - blocks24h + 1);
@@ -1964,7 +1969,7 @@ async function handle(req, res) {
       }
       eligible.sort((a,b) => b.movement_count - a.movement_count);
       const totalMovements = eligible.reduce((sum,row) => sum + row.movement_count, 0);
-      res.end(JSON.stringify({
+      const responseData = {
         ok: true,
         source: "ethereum_rpc_direct_recent_blocks",
         latest_block: latestBlock,
@@ -1974,7 +1979,12 @@ async function handle(req, res) {
         total_movements: totalMovements,
         min_balance_eth: 1,
         wallets: eligible.slice(0, 50)
-      }));
+      };
+      dailyActivityCache = { expiresAt: Date.now() + 5 * 60 * 1000, data: responseData };
+      res.end(JSON.stringify(responseData));
+      /*
+
+      */
     } catch (error) {
       console.error("[DAILY_ACTIVITY]", error.message);
       res.statusCode = 503;
