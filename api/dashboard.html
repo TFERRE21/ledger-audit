@@ -317,8 +317,22 @@ async function loadTopWallets(){
     const active=Number(j.active_wallets||0);
     const movements=Number(j.total_movements||0);
 
+    if(j.building){
+      const pct=Number(j.progress_percent||0);
+      $("overviewWallets").textContent="CARREGANDO";
+      $("overviewWalletsNote").textContent="30 dias • "+pct.toFixed(1)+"% processado";
+      $("overviewVolume").textContent="CARREGANDO";
+      $("overviewTopWallet").textContent="ANALISANDO";
+      $("walletCount").textContent="CARREGANDO";
+      $("walletTotalVolume").textContent="CARREGANDO";
+      if($("walletBars")) $("walletBars").innerHTML='<div class="muted">🔄 Construindo o histórico real dos últimos 30 dias diretamente da Ethereum... <b>'+pct.toFixed(1)+'%</b><br><br>Blocos processados: '+fmt(j.scanned_blocks)+' / '+fmt(j.total_blocks)+'</div>';
+      if($("walletShare")) $("walletShare").innerHTML='<div class="muted">O ranking aparecerá automaticamente quando o processamento dos 30 dias terminar.</div>';
+      if($("walletRows")) $("walletRows").innerHTML='<tr><td colspan="5" class="muted">Processando histórico on-chain...</td></tr>';
+      return;
+    }
+
     $("overviewWallets").textContent=fmt(active);
-    $("overviewWalletsNote").textContent="saldo atual ≥ 1 ETH • "+fmt(movements)+" movimentos/24h";
+    $("overviewWalletsNote").textContent="saldo atual ≥ 1 ETH • "+fmt(movements)+" movimentos/30 dias";
     $("overviewVolume").textContent=fmt(movements);
     $("overviewTopWallet").textContent=wallets[0]
       ? fmt(Number(wallets[0].movement_count||0))+" movimentos"
@@ -332,7 +346,7 @@ async function loadTopWallets(){
       const v=Number(x.movement_count||0);
       const pct=Math.max(1,Math.min(100,(v/max)*100));
       return '<div class="walletBarRow"><span title="'+esc(x.address)+'">#'+x.rank+' '+esc(short(x.address,10))+'</span><div class="walletBarTrack"><div class="walletBarFill" style="width:'+pct+'%"></div></div><b>'+fmt(v)+' movimentos</b></div>';
-    }).join("") || '<div class="muted">Nenhuma movimentação real encontrada nas últimas 24h para carteiras com saldo ≥ 1 ETH.</div>';
+    }).join("") || '<div class="muted">Nenhuma movimentação real encontrada nos últimos 30 dias para carteiras com saldo ≥ 1 ETH.</div>';
 
     $("walletShare").innerHTML=top.map(x=>{
       const v=Number(x.movement_count||0);
